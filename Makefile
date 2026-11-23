@@ -1,7 +1,8 @@
 # Every Python command goes through `uv run`, which uses the project's .venv/ and never a global Python.
-# Targets for later phases (api, ui) are added in the phase that builds them.
+# Targets for later phases (ui, demo) are added in the phase that builds them.
 
-.PHONY: setup data data-lite explore train eval eval-val test lint format typecheck notebook clean
+.PHONY: setup data data-lite explore train eval eval-val samples api test lint format typecheck \
+	notebook clean
 
 setup:
 	uv python install 3.11
@@ -59,6 +60,18 @@ eval:
 eval-val:
 	uv run python -m cardiac.evaluate --run $(RUN) --split val
 	uv run python scripts/plot_run.py --run $(RUN)
+
+# Normal ranges from the NOR training patients, then the app's 5 precomputed sample patients
+# (data/cache/samples/, git-ignored). Needs the trained runs and `make eval`.
+samples:
+	uv run python scripts/normal_ranges.py
+	CARDIAC_DEVICE=$(DEVICE) uv run python scripts/cache_sample_cases.py
+
+# The backend on http://localhost:8000 (API docs at /docs). CPU by default; `make api DEVICE=mps`.
+DEVICE ?= cpu
+api:
+	CARDIAC_DEVICE=$(DEVICE) uv run uvicorn backend.app.main:app --port 8000 --reload \
+		--reload-dir backend --reload-dir src
 
 test:
 	uv run pytest
