@@ -1,12 +1,24 @@
 # Every Python command goes through `uv run`, which uses the project's .venv/ and never a global Python.
-# Targets for later phases (data, train, eval, api, ui) are added in the phase that builds them.
+# Targets for later phases (train, eval, api, ui) are added in the phase that builds them.
 
-.PHONY: setup test lint format typecheck notebook clean
+.PHONY: setup data data-lite explore test lint format typecheck notebook clean
 
 setup:
 	uv python install 3.11
 	uv sync
 	@uv run python -c "import sys; print('virtual environment:', sys.prefix)"
+
+data:
+	uv run python scripts/download_data.py
+	uv run python scripts/make_splits.py
+
+# Same as `data` but skips the 4D cine files (~1 GB); enough for training and evaluation.
+data-lite:
+	uv run python scripts/download_data.py --no-cine
+	uv run python scripts/make_splits.py
+
+explore:
+	cd notebooks && uv run jupyter nbconvert --to notebook --execute --inplace 01_data_exploration.ipynb
 
 test:
 	uv run pytest
