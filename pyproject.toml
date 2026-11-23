@@ -65,6 +65,9 @@ src = ["src", "tests", "scripts", "backend"]
 # UP: modern syntax. N: naming. SIM: simpler code. RUF: ruff's own checks.
 select = ["E", "W", "F", "I", "B", "UP", "N", "SIM", "RUF"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["cardiac", "backend"]
+
 [tool.ruff.lint.pep8-naming]
 # Medical-imaging code reads better with the usual capitalised shapes (H, W, S).
 ignore-names = ["H", "W", "S", "D", "X", "X_*", "N"]
@@ -72,10 +75,12 @@ ignore-names = ["H", "W", "S", "D", "X", "X_*", "N"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+# The backend is not an installed package; the repository root makes `import backend` work.
+pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["src"]
+files = ["src", "backend"]
 strict = true
 ignore_missing_imports = true
 
