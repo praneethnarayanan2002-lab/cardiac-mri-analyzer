@@ -7,7 +7,7 @@ next to the code. Each section is written in the phase that builds that part of 
 2. One training step, from NIfTI file to gradient update (Phase 2)
 3. A full training run with early stopping (Phase 2)
 4. Inference on one patient (Phase 2)
-5. Clinical calculation, worked example (Phase 4)
+5. [Clinical calculation, worked example](#5-clinical-calculation-worked-example) (Phase 4)
 6. Diagnosis and SHAP for the same patient (Phase 5)
 7. An upload in the app (Phase 6)
 8. Report generation (Phase 6)
@@ -286,9 +286,118 @@ post-processing actually changes.
 
 ---
 
-## 9. The evaluation run that writes `results/` (segmentation part, Phase 3)
+## 5. Clinical calculation, worked example
 
-Clinical, diagnosis and uncertainty results are added to this section in Phases 4–5.
+`cardiac.measure` (in `src/cardiac/measure.py`) turns label maps into one row of numbers per patient,
+using the formulas in `src/cardiac/clinical.py` (`ml_basics.md` §14).
+
+```mermaid
+flowchart TD
+    M["PatientMeta<br/>height, weight, group"] --> MP
+    subgraph Source["where the ED and ES label maps come from"]
+        EX["--expert<br/>load_frame().label"]
+        RU["--run runs/.../seed&lt;k&gt;<br/>predict_volume() (§4)"]
+        MS["--medsam<br/>segment_volume() + postprocess()"]
+    end
+    EX & RU & MS --> L["ED label (X, Y, Z) uint8<br/>ES label (X, Y, Z) uint8<br/>spacing (1.0, 1.0, 10.0) mm"]
+    L --> MP["measure_patient()"]
+    MP --> V["structure_volume_ml() × 4<br/>LV, RV at ED and ES"]
+    MP --> EF["ejection_fraction() × 2"]
+    MP --> MA["myocardial_mass_g()<br/>ED only"]
+    MP --> WT["wall_thickness_mm()<br/>ED, slice by slice"]
+    MP --> B["body_surface_area_m2()<br/>then ÷ BSA for 5 indexed values"]
+    V & EF & MA & WT & B --> ROW["one row: 15 measurements<br/>+ pid, group, height, weight"]
+    ROW --> CSV[("results/&lt;split&gt;/clinical_&lt;source&gt;.csv")]
+    L --> CHK["Dice vs the expert, compared with<br/>results/&lt;split&gt;/&lt;source&gt;.csv<br/>(same masks as Phase 3?)"]
+    CHK --> JS[("clinical_&lt;source&gt;.json<br/>max_dice_difference_vs_evaluation")]
+```
+
+### Test patient129, by hand
+
+I picked this patient by a rule, not by looking: it has the **median** LV ejection fraction error of
+the pretrained U-Net (seed 0) across the 50 test patients, so it is a typical case. It belongs to the
+"abnormal RV" group. Height 183 cm, weight 75 kg; 8 slices of 192 × 192 pixels, spacing
+1 × 1 × 10 mm, so **one voxel = 0.01 mL**. (Its original slices were 5 mm apart; the mirror resampled
+them to 10 mm, `decisions.md` D9.)
+
+**Step 1: count voxels per slice.** Slice 0 is the base of the heart (near the valves), slice 7 the
+apex. Expert and pretrained U-Net (seed 0), end-diastole:
+
+| slice | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | total |
+|---|---|---|---|---|---|---|---|---|---|
+| LV, expert | 3,031 | 3,029 | 2,854 | 2,632 | 2,459 | 2,015 | 1,085 | 515 | 17,620 |
+| LV, U-Net | 2,795 | 3,019 | 2,830 | 2,673 | 2,352 | 1,893 | 1,118 | 509 | 17,189 |
+| RV, expert | 3,061 | 4,393 | 4,403 | 3,674 | 3,356 | 2,774 | 1,908 | 1,388 | 24,957 |
+| RV, U-Net | **255** | 4,190 | 4,127 | 3,317 | 3,190 | 2,404 | 1,830 | 1,223 | 20,536 |
+
+And end-systole:
+
+| slice | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | total |
+|---|---|---|---|---|---|---|---|---|---|
+| LV, expert | 1,452 | 1,352 | 1,396 | 1,398 | 1,244 | 1,043 | 257 | 123 | 8,265 |
+| LV, U-Net | 1,437 | 1,370 | 1,400 | 1,380 | 1,081 | 580 | 379 | 117 | 7,744 |
+| RV, expert | 0 | 3,922 | 3,343 | 2,721 | 2,410 | 1,780 | 984 | 642 | 15,802 |
+| RV, U-Net | 0 | **0** | 3,169 | 2,722 | 2,407 | 1,595 | 1,079 | 559 | 11,531 |
+
+**Step 2: volumes and ejection fraction.**
+
+```
+                    expert                               U-Net (ResNet-34, seed 0)
+LV EDV   17,620 × 0.01 = 176.20 mL                 17,189 × 0.01 = 171.89 mL
+LV ESV    8,265 × 0.01 =  82.65 mL                  7,744 × 0.01 =  77.44 mL
+LV EF    (176.20 − 82.65) / 176.20 = 53.1 %        (171.89 − 77.44) / 171.89 = 54.9 %
+
+RV EDV   24,957 × 0.01 = 249.57 mL                 20,536 × 0.01 = 205.36 mL
+RV ESV   15,802 × 0.01 = 158.02 mL                 11,531 × 0.01 = 115.31 mL
+RV EF    (249.57 − 158.02) / 249.57 = 36.7 %       (205.36 − 115.31) / 205.36 = 43.8 %
+```
+
+**Step 3: mass, thickness, body size.**
+
+```
+MYO at ED   expert 8,864 voxels × 0.01 × 1.05 =  93.1 g      U-Net 11,032 voxels → 115.8 g
+wall        expert mean 5.7 mm, max 10.6 mm                  U-Net mean 7.3 mm, max 11.2 mm
+BSA         √(183 × 75 / 3600) = 1.95 m²
+LV EDV i    176.20 / 1.95 = 90.2 mL/m²                       171.89 / 1.95 = 88.0 mL/m²
+mass i       93.1 / 1.95 = 47.7 g/m²                         115.8 / 1.95 = 59.3 g/m²
+```
+
+**What the example shows.**
+
+- **LV numbers are close** (EF 54.9% vs 53.1%). Small differences spread over many slices partly
+  cancel.
+- **The RV error lives in the top slices.** At end-diastole the U-Net finds almost no RV on slice 0
+  (255 voxels vs 3,061), and at end-systole none on slice 1 (0 vs 3,922). Each of those misses is a
+  whole 10 mm disc: about 28 mL and 39 mL. Deciding whether the top slice still contains ventricle is
+  the hardest call in short-axis MRI, for people too, and with 10 mm slices it moves the volume a lot.
+  Because the ES slice is missed more than the ED one, RV EF comes out 7 points too high (43.8% vs
+  36.7%). For this patient that matters: the ACDC definition of "abnormal RV" includes RV EF below 40%,
+  and the U-Net's value is on the other side of that line.
+- **The myocardium is drawn thicker** than the expert's on most slices (11,032 vs 8,864 voxels at ED),
+  so mass is about 23 g high. Across all 50 test patients the pretrained U-Net's mass bias is
+  +3.6 g, so this patient is on the high side, not typical.
+
+The same three model rows for patient129 (pretrained and scratch U-Net, seed 0, and MedSAM with exact
+boxes) are in `results/test/clinical_*.csv`. MedSAM gets 23.9 g of myocardium here, a quarter of the
+expert's 93.1 g, which is its myocardium failure (`decisions.md` D19) showing up as a clinical number.
+
+### Agreement over all test patients
+
+`scripts/summarize_clinical.py` reads every `clinical_<source>.csv`, pairs each model row with the
+expert row of the same patient, and computes `bland_altman()` per measurement and per seed. The
+summary in `results/clinical.json` is mean ± std over the 3 seeds; the plots
+(`figures/bland_altman_*.png`) show seed 0, one dot per patient.
+
+![LV ejection fraction agreement](../figures/bland_altman_lv_ef.png)
+
+---
+
+## 9. The evaluation run that writes `results/`
+
+Segmentation (Phase 3) and clinical numbers (Phase 4) so far; diagnosis and uncertainty are added in
+Phase 5.
+
+### 9a. Segmentation
 
 ```mermaid
 flowchart TD
@@ -334,3 +443,29 @@ per test:  each patient's Dice averaged over 3 seeds and ED/ES             → 5
 The "±" in the results table is therefore **training noise** (how much the score moves between seeds),
 not patient-to-patient spread, which is much larger (a standard deviation of about 0.04–0.07 Dice,
 depending on the structure) and is in the per-run JSON files.
+
+### 9b. Clinical numbers (Phase 4)
+
+`make eval` continues after the segmentation summary:
+
+```mermaid
+flowchart TD
+    EXP["cardiac.measure --expert<br/>--split train / val / test"] --> CE[("results/&lt;split&gt;/clinical_expert.csv")]
+    R[("6 U-Net checkpoints")] --> MR["cardiac.measure --run ... --split test<br/>(once per run)"]
+    MSM["cardiac.measure --medsam --split test"] --> CM
+    MR --> CM[("results/test/clinical_&lt;model&gt;.csv/.json")]
+    CE --> SC["scripts/summarize_clinical.py"]
+    CM --> SC
+    SC --> CJ[("results/clinical.json<br/>Bland-Altman per measurement,<br/>mean ± std over seeds")]
+    SC --> CF["figures/bland_altman_*.png"]
+```
+
+The order matters in the same way as for segmentation:
+
+1. The measurement code was written, unit-tested and run on the **validation** split first
+   (`results/clinical_val.json`). The test run used it unchanged (`decisions.md` D23).
+2. Predicted masks are recomputed, not stored. Every `clinical_<model>.json` records the largest Dice
+   difference from the Phase 3 evaluation of the same model; all are at most 0.00005, which is the
+   rounding of the 4-decimal CSV. So the numbers were measured on exactly the masks Phase 3 scored.
+3. Expert measurements for the training and validation patients (`results/train/`, `results/val/`)
+   are written too: they are the training data for the diagnosis models in Phase 5.

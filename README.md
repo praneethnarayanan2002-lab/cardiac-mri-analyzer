@@ -9,9 +9,10 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 ## Status
 
-The project is being built in phases (see `docs/`). Phases 0–3 are done: setup, data, and three
-segmenters evaluated once on the 50 held-out test patients. Clinical measurements, diagnosis, uncertainty
-and the app come next. Every number below comes from `results/segmentation.json`.
+The project is being built in phases (see `docs/`). Phases 0–4 are done: setup, data, three segmenters
+evaluated once on the 50 held-out test patients, and the clinical numbers derived from their masks.
+Diagnosis, uncertainty and the app come next. Every number below comes from `results/segmentation.json`
+or `results/clinical.json`.
 
 ## Results so far: segmentation on the test set
 
@@ -36,6 +37,40 @@ U-Nets: mean ± std over 3 training seeds. MedSAM is not trained, so it has one 
   0.743 (`figures/medsam_jitter.png`).
 - These Dice scores are on images the mirror cropped around the expert's LV centre, so they are somewhat
   optimistic compared with full-field scans (`docs/decisions.md` D9).
+
+## Results so far: clinical numbers on the test set
+
+Volumes, ejection fraction (EF), myocardial mass and wall thickness computed from each model's masks,
+compared with the same numbers computed from the expert masks (`docs/decisions.md` D21). Each cell is
+the **bias** (mean of model − expert) and the **95% limits of agreement** in brackets, over 50 test
+patients. U-Nets: averaged over 3 seeds.
+
+| Measurement | expert mean | U-Net, scratch | U-Net, ResNet-34 | MedSAM, oracle boxes |
+|---|---|---|---|---|
+| LV EDV (mL) | 176.0 | −2.2 [−15.3, +11.0] | −3.6 [−15.1, +8.0] | −15.4 [−48.2, +17.4] |
+| LV ESV (mL) | 98.2 | +1.1 [−12.5, +14.6] | −0.8 [−15.4, +13.8] | −9.8 [−35.5, +15.9] |
+| LV EF (%) | 51.0 | −1.8 [−9.4, +5.7] | −1.0 [−9.2, +7.3] | +0.3 [−5.4, +6.0] |
+| RV EDV (mL) | 171.9 | −3.5 [−29.2, +22.3] | −5.8 [−30.3, +18.8] | −2.5 [−36.4, +31.4] |
+| RV ESV (mL) | 93.9 | −3.3 [−34.4, +27.7] | −4.0 [−30.5, +22.6] | +0.4 [−25.1, +25.9] |
+| RV EF (%) | 46.8 | +1.3 [−12.3, +14.9] | +1.1 [−13.2, +15.5] | −0.2 [−9.6, +9.1] |
+| Myocardial mass (g) | 133.4 | +6.5 [−12.6, +25.5] | +3.6 [−13.4, +20.5] | −84.5 [−137.6, −31.5] |
+| Mean wall thickness (mm) | 7.7 | +0.6 [−0.4, +1.5] | +0.5 [−0.4, +1.3] | −4.0 [−5.9, −2.0] |
+| Max wall thickness (mm) | 14.8 | +0.5 [−4.3, +5.3] | +0.2 [−5.3, +5.7] | −2.7 [−8.3, +2.9] |
+
+![LV ejection fraction agreement](figures/bland_altman_lv_ef.png)
+
+- **RQ4, LV:** both U-Nets measure LV volumes, EF and mass with small bias. For a single patient, LV EF
+  can still be off by up to about 9 points (the limits of agreement), so it is close but not
+  interchangeable with the expert.
+- **RQ4, RV:** RV numbers are clearly less reliable (RV EF limits about ±14 points). The errors
+  concentrate in the top slices, where deciding whether the slice still contains ventricle moves the
+  volume by a whole 10 mm disc (worked example in `docs/flow.md` §5).
+- **MedSAM** underestimates LV volumes and gets the myocardium badly wrong (mass −84.5 g), as its
+  Dice suggested. Its EF limits are the narrowest of the three, because its oracle boxes tell it which
+  slices contain each structure (for the U-Nets, a main source of error: see the worked example), and
+  it under-segments the LV by a similar fraction at ED and ES, so that cancels in the ratio.
+- Full statistics per measurement (MAE, Pearson r, per seed) are in `results/clinical.json`; all nine
+  Bland-Altman plots per model are in `figures/bland_altman_<model>.png`.
 
 ## Quick start
 
