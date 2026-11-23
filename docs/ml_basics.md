@@ -583,3 +583,117 @@ are a strong starting point, not a guarantee.
 
 **Where it lives in our code.** `src/cardiac/models/medsam.py` (loading, boxes, jitter, merging) and
 `src/cardiac/evaluate_medsam.py` (running it on a split and scoring it).
+
+---
+
+## 14. From masks to millimetres
+
+**What it is.** A segmentation is a label per voxel. Cardiologists don't read label maps; they read a
+handful of numbers: how big each ventricle is when full and when emptied, what fraction of the blood it
+pumps out per beat, how heavy the heart muscle is and how thick its wall is. All of these come from
+**counting voxels and multiplying by the size of one voxel** (§2).
+
+```mermaid
+flowchart LR
+    ED["ED label map<br/>(X, Y, Z)"] --> C1["count LV, RV, MYO voxels"]
+    ES["ES label map<br/>(X, Y, Z)"] --> C2["count LV, RV voxels"]
+    SP["spacing (mm)"] --> V["voxel volume<br/>x · y · z / 1000 mL"]
+    C1 --> EDV["EDV (mL)"] & MASS["mass (g)<br/>MYO mL × 1.05 g/mL"]
+    C2 --> ESV["ESV (mL)"]
+    V --> EDV & ESV & MASS
+    EDV & ESV --> EF["EF (%)<br/>(EDV − ESV) / EDV × 100"]
+    ED --> WT["wall thickness (mm)<br/>distance transform, per slice"]
+    H["height, weight"] --> BSA["BSA (m²)<br/>√(height × weight / 3600)"]
+    EDV & ESV & MASS --> IDX["indexed values<br/>÷ BSA"]
+    BSA --> IDX
+```
+
+| Number | Formula | Unit | What it tells a cardiologist |
+|---|---|---|---|
+| EDV (LV, RV) | voxels at end-diastole × voxel volume | mL | how big the chamber is when full |
+| ESV (LV, RV) | voxels at end-systole × voxel volume | mL | how much is left after it contracts |
+| EF (LV, RV) | (EDV − ESV) / EDV × 100 | % | how well it pumps |
+| Myocardial mass | myocardium voxels at ED × voxel volume × 1.05 | g | how much muscle there is (1.05 g/mL is the density of heart muscle) |
+| Wall thickness | per slice, outer border → nearest cavity pixel | mm | thick walls point to hypertrophy |
+| BSA | Mosteller: √(height cm × weight kg / 3600) | m² | body size, to compare a small and a large person fairly |
+| Indexed values | EDV, ESV or mass ÷ BSA | mL/m², g/m² | "big for this person's body", not just "big" |
+
+**A worked example, by hand.** Validation patient001 (dilated cardiomyopathy), from the expert labels
+(`results/val/clinical_expert.csv`). One voxel is 1 × 1 × 10 mm = 0.01 mL.
+
+```
+LV at ED:      29,490 voxels × 0.01 mL = 294.90 mL   (EDV)
+LV at ES:      22,539 voxels × 0.01 mL = 225.39 mL   (ESV)
+EF           = (294.90 − 225.39) / 294.90 × 100 = 23.6 %
+MYO at ED:     16,509 voxels × 0.01 mL × 1.05 g/mL = 173.3 g
+BSA          = √(184 cm × 95 kg / 3600) = 2.20 m²
+LV EDV index = 294.90 / 2.20 = 133.8 mL/m²
+```
+
+The heart fills to almost 300 mL and pumps out less than a quarter of it per beat, a typical picture of
+a dilated, weak left ventricle.
+
+**Counting voxels is the "summation of discs" method.** Each slice of the cavity is a thin disc whose
+area is (pixel count × pixel area) and whose height is the slice spacing; adding the discs gives the
+volume. This is how cardiac MRI volumes are measured clinically too. Its weak spot is the same as ours:
+with 10 mm slices, whether the top slice near the valve counts as "ventricle" changes the volume by a
+whole disc.
+
+**Wall thickness with a distance transform.** A **distance transform** turns a mask into a map where
+each pixel holds its distance to the nearest pixel of some set, here the LV cavity. On one row of
+pixels through the wall (spacing 1 mm):
+
+```
+label:     LV  LV  MYO MYO MYO MYO bg  bg
+distance:   0   0   1   2   3   4   5   6     (mm to the nearest LV pixel)
+                                ↑
+                outer border of the myocardium: wall thickness = 4 mm
+```
+
+The code reads the distance at every pixel on the **outer** border of the myocardium, all the way
+round, on every end-diastolic slice that has both cavity and muscle. That gives between about 750 and
+2,600 measurements per validation heart; we keep their mean and their maximum. It works slice by slice, because slices
+are 10 mm apart, about as far as the wall is thick: a 3D distance would mix in the gap between slices.
+`figures/wall_thickness_example.png` shows the dots on two real hearts.
+
+![Wall thickness on two validation hearts](../figures/wall_thickness_example.png)
+
+The **maximum** is a fragile number: it comes from one pixel, so one stray bump of the outline changes
+it. The mean is much steadier. We still report the maximum, because the ACDC paper defines
+hypertrophic cardiomyopathy partly by wall segments thicker than 15 mm at end-diastole.
+
+**How we check the numbers against the expert: Bland-Altman.** For each test patient we compute the
+same number twice, once from the model's masks and once from the expert's, and look at the
+differences.
+
+- **Bias** = the mean difference. Does the model measure systematically too high or too low?
+- **Limits of agreement** = bias ± 1.96 × (standard deviation of the differences). If the differences
+  are roughly normal, about 95% of patients fall inside this band. This is the "how wrong could it be
+  for one patient" range.
+- **Mean absolute error** = the typical size of a miss, ignoring direction.
+
+A toy example (the one in `tests/test_clinical.py`): expert values 10, 20, 30, 40, model values 12, 21,
+33, 42. Differences 2, 1, 3, 2; bias 2.0; their SD is 0.82; limits of agreement 2.0 ± 1.6, so 0.4 to
+3.6.
+
+```
+ model − expert
+      ▲
+  +LoA ┤- - - - - - - - - - - - - - - - - - -   bias + 1.96 SD
+       │      •        •    •
+  bias ┤─────────•──•───────────•──────•─────   mean difference
+       │   •          •       •
+     0 ┤···································    perfect agreement
+  −LoA ┤- - - - - - - - - - - - - - - - - - -   bias − 1.96 SD
+       └────────────────────────────────────►
+           mean of model and expert
+```
+
+**Why not just correlation?** Correlation measures whether two numbers go up and down together, not
+whether they are equal. A model that reported every volume as exactly double the truth would have a
+correlation of 1.0 and be useless. Bland-Altman plots the error itself, against the size of the thing
+being measured, so you can also see whether the error grows for bigger hearts.
+
+**Where it lives in our code.** `src/cardiac/clinical.py` (every formula above, plus `bland_altman()`),
+`src/cardiac/measure.py` (runs it on expert and predicted masks for a whole split) and
+`scripts/summarize_clinical.py` (agreement statistics and plots).

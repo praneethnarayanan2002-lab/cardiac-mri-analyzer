@@ -2,7 +2,7 @@
 
 What the pieces are and how they connect. `flow.md` follows execution step by step; this file is the
 map. Sections are added in the phase that builds each part: the research package and the three
-segmenters now (Phase 3), the backend in Phase 6, the frontend in Phase 7, deployment in Phase 8.
+segmenters (Phases 3–4), the backend in Phase 6, the frontend in Phase 7, deployment in Phase 8.
 
 ---
 
@@ -32,6 +32,7 @@ flowchart TD
         TR["train.py"]
         EV["evaluate.py"]
         EM["evaluate_medsam.py"]
+        ME["measure.py"]
     end
     subgraph Data["data/"]
         IO["io.py<br/>PatientMeta, Frame, load_frame"]
@@ -47,14 +48,19 @@ flowchart TD
     end
     INF["infer.py<br/>predict_volume, postprocess"]
     MET["metrics.py<br/>dice, hd95"]
+    CL["clinical.py<br/>volumes, EF, mass,<br/>thickness, Bland-Altman"]
     CFG["config.py"]
     REP["repro.py<br/>seeds, git commit"]
     TR --> CFG & DS & AU & SP & INF & MET & REP
     DS --> IO & PP
     EV --> INF & MET & SP & IO & REP
     EM --> MS & INF & MET & SP & IO & EV
+    ME --> CL & INF & MS & MET & SP & IO & REP
     INF --> PP & UN & UP
 ```
+
+`clinical.py` is pure arithmetic on label maps: it never sees an image or a model, so the same code
+measures expert masks, U-Net masks, MedSAM masks and, later, masks from an upload in the app.
 
 `infer.py` is the one place that turns an image into a label map. Training (for validation), evaluation
 and, later, the web backend all call it, so they cannot drift apart.

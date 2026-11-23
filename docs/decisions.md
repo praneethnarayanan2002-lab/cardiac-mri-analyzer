@@ -502,3 +502,96 @@ because the HD95 means looked different. That second test was chosen after seein
 `results/segmentation.json` marks it `"planned": false` and I treat it as exploratory: RV p = 0.018,
 MYO p = 0.20, LV p = 0.07. With three structures tested, a Bonferroni-corrected threshold is
 0.05 / 3 ≈ 0.017, and none of them pass it.
+
+---
+
+## D21. The reference for clinical numbers is our own formulas applied to the expert masks
+
+**Context.** RQ4 asks whether the clinical numbers from predicted masks are usable. That needs a
+reference value per patient. Three candidates exist: values reported by the hospital, the `edv`, `esv`
+and `ef` columns in the mirror's CSV files, or the same formulas run on the expert masks.
+
+**Options considered.**
+
+| Reference | Problem |
+|---|---|
+| Hospital-reported values | not released with ACDC |
+| The mirror's CSV columns | `edv` is 4–9 times the LV volume of the expert masks (D9); nothing says how they were made |
+| Our formulas on the expert masks | measures only segmentation error, which is what RQ4 is about |
+
+**Decision.** The reference is `measure_patient()` applied to the expert masks, with the same spacing,
+the same code and the same conventions (mass at ED, Mosteller BSA, thickness per slice). The
+difference between model and expert then comes from the masks alone, not from two different ways of
+measuring.
+
+**Trade-offs.** Our "expert" numbers are not what a cardiologist would have written in the report.
+They inherit the mirror's resampling: 23 patients had their slices resampled through-plane (D9), which
+changes their volumes slightly compared with the original scans. Model and reference are on the same
+grid, so the comparison is fair, but these absolute values should not be compared with numbers
+published on the original ACDC files.
+
+**How I'd revisit it.** With the official ACDC download (D9), run the same code on the original
+spacing and compare both sets of expert numbers; the difference would show what the mirror's
+resampling costs.
+
+---
+
+## D22. Wall thickness: outer border to nearest cavity pixel, per slice, mean and max at ED
+
+**Context.** The plan asks for wall thickness "per slice, distance from inner to outer myocardial
+border (distance transform)", reported as mean and maximum at end-diastole.
+
+**Options considered.**
+
+| Method | How | Trade-off |
+|---|---|---|
+| Rays from the cavity centre | cast lines outwards, measure the muscle crossed | breaks for non-round cavities (the RV insertion, basal slices) |
+| Skeleton × 2 | thin the ring to its centre line, double the distance to the edge there | sensitive to small bumps, which add skeleton branches |
+| **Outer border → nearest cavity pixel** | distance transform of "not cavity", read at each outer-border pixel | simple, uses real spacing, no centre needed; overestimates a little where the wall is cut obliquely |
+| AHA 16/17-segment model | thickness per named wall segment | needs the RV insertion points to orient the segments: a separate piece of work |
+
+**Decision.** Use the outer-border method on every ED slice that contains both LV cavity and
+myocardium, with the in-plane spacing of the scan. The outer border is every myocardium pixel that
+touches something other than myocardium or cavity, so the septum is measured against the RV. Report
+the mean and the maximum of all samples in the heart.
+
+**Why.** It follows the plan's wording directly, needs no landmarks, and is checked by a unit test on
+a synthetic ring of known thickness (`tests/test_clinical.py`).
+
+**Trade-offs.** The maximum is one pixel's measurement and is noisy. On basal slices, where the ring is
+open towards the outflow tract, or where the slice cuts the wall at an angle, it reads thicker than the
+wall really is. The mean, over hundreds to thousands of samples per heart, is much steadier. Segment-level
+thickness would be closer to clinical practice; it is listed as future work.
+
+**What the test set showed.** For the pretrained U-Net, mean thickness agrees closely with the expert
+(bias +0.45 mm, limits of agreement −0.42 to +1.33 mm, r = 0.975); maximum thickness much less so
+(limits −5.3 to +5.7 mm, r = 0.874), as expected from a one-pixel statistic.
+
+**How I'd revisit it.** Report a high percentile (say the 95th) instead of the maximum, or move to the
+16-segment model once RV insertion points are detected.
+
+---
+
+## D23. Clinical agreement on the test set, from the same frozen models
+
+**Context.** Phase 3 already evaluated every model once on the test set. RQ4 needs the predicted masks
+again to measure them, but the masks weren't saved.
+
+**Decision.** `cardiac.measure` recomputes them with the same checkpoint, the same deterministic
+inference and the same post-processing, then measures them. Nothing about the models or the
+measurement code was chosen after looking at test results: the measurement code was finished and run
+on the validation set first (`results/clinical_val.json`), and the test run used it unchanged.
+
+To prove the recomputed masks are the ones Phase 3 scored, `cardiac.measure` recomputes every Dice and
+compares it with the Phase 3 CSV. The largest difference for every run is stored in its
+`clinical_<run>.json` as `max_dice_difference_vs_evaluation`; it is below 0.0001 in every case, which is
+the rounding of the 4-decimal CSV, not a different mask.
+
+**Statistics.** Bland-Altman for each U-Net is computed per seed; `results/clinical.json` reports the
+mean ± std of bias, limits of agreement, MAE and Pearson r over the three seeds. Plots show seed 0, so
+each dot is one real patient rather than an average. MedSAM is reported at each jitter level separately,
+like in Phase 3; the plots show exact boxes (jitter 0), its best case.
+
+**How I'd revisit it.** Save the predicted masks once, at evaluation time, so later phases read them
+instead of recomputing. I didn't, because Phase 3 was already finished and frozen; the Dice check makes
+recomputing safe.
