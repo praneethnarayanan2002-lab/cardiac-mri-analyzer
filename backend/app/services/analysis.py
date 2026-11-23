@@ -16,9 +16,13 @@ from cardiac.infer import predict_volume
 from cardiac.uncertainty import doubt_score, predict_with_doubt
 
 PHASES = ("ed", "es")
-# Re-centre the crop on the heart only when the first pass finds it this far (mm) from the image
-# centre. The mirror's scans are already centred, so their masks stay exactly the evaluated ones.
+# Re-centre the crop on the LV only when the first pass finds it this far (mm) from the centre.
+# The mirror's scans are already centred, so their masks stay exactly the evaluated ones. Passes
+# stop once the centre moves less than SETTLED_MM.
 RECENTRE_MM = 16.0
+SETTLED_MM = 2.0
+MAX_RECENTRE_PASSES = 3
+LV = 3
 
 LABELS = {
     "lv_edv_ml": "LV end-diastolic volume",
@@ -70,17 +74,50 @@ class Analysis:
     summary: dict[str, object] = field(default_factory=dict)
 
 
-def heart_centre(
-    label: np.ndarray, spacing_mm: tuple[float, float, float]
-) -> tuple[float, float] | None:
-    """In-plane centre of mass (voxel units) of all heart voxels, or None if the first pass found
-    nothing or the heart is already near the image centre."""
-    if not (label > 0).any():
+def lv_centre(label: np.ndarray) -> tuple[float, float] | None:
+    """In-plane centre of mass (voxel units) of the predicted LV cavity, or None if there is none.
+
+    The LV, not the whole heart: the mirror's training images were cropped around the expert LV
+    centre, so this reproduces the framing the model learned on."""
+    if not (label == LV).any():
         return None
-    cx, cy, _ = ndimage.center_of_mass(label > 0)
-    mid_x, mid_y = (label.shape[0] - 1) / 2, (label.shape[1] - 1) / 2
-    offset_mm = math.hypot((cx - mid_x) * spacing_mm[0], (cy - mid_y) * spacing_mm[1])
-    return (float(cx), float(cy)) if offset_mm > RECENTRE_MM else None
+    cx, cy, _ = ndimage.center_of_mass(label == LV)
+    return float(cx), float(cy)
+
+
+def find_crop_centre(
+    models: ModelBundle, image: np.ndarray, spacing_mm: tuple[float, float, float]
+) -> tuple[float, float] | None:
+    """Where to centre the crop: None (the image centre) if the LV is already within RECENTRE_MM
+    of it, otherwise the LV centre, refined over a few passes because the first pass may only see
+    part of a heart near the edge of the window."""
+    pre = models.unet_pretrained
+    data = pre.config.data
+    mid = ((image.shape[0] - 1) / 2, (image.shape[1] - 1) / 2)
+    centre: tuple[float, float] | None = None
+    for _ in range(MAX_RECENTRE_PASSES):
+        label = predict_volume(
+            pre.model,
+            image,
+            spacing_mm,
+            models.device,
+            data.target_spacing_mm,
+            data.size,
+            centre_xy=centre,
+        )
+        found = lv_centre(label)
+        if found is None:
+            return centre
+        here = centre or mid
+        moved_mm = math.hypot(
+            (found[0] - here[0]) * spacing_mm[0], (found[1] - here[1]) * spacing_mm[1]
+        )
+        if centre is None and moved_mm <= RECENTRE_MM:
+            return None  # already centred, like every scan in the mirror
+        if centre is not None and moved_mm <= SETTLED_MM:
+            return centre
+        centre = found
+    return centre
 
 
 def segment(
@@ -88,36 +125,39 @@ def segment(
     images: dict[str, np.ndarray],
     spacing_mm: tuple[float, float, float],
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, float]]:
-    """Both U-Nets on both phases, the pretrained one with TTA. Returns layers and doubt scores."""
+    """Both U-Nets on both phases, plus TTA on the pretrained one. Returns layers and doubt scores.
+
+    The masks shown and measured are the single-view predictions, the ones every number in
+    results/ was computed from. TTA only supplies the doubt map and score, computed exactly as in
+    cardiac.evaluate_uncertainty (docs/decisions.md D31)."""
     pre, scratch = models.unet_pretrained, models.unet
-    data = pre.config.data
-    first = predict_volume(
-        pre.model, images["ed"], spacing_mm, models.device, data.target_spacing_mm, data.size
-    )
-    centre = heart_centre(first, spacing_mm)
+    centre = find_crop_centre(models, images["ed"], spacing_mm)
     layers: dict[str, dict[str, np.ndarray]] = {}
     scores: dict[str, float] = {}
     for phase in PHASES:
-        label, doubt = predict_with_doubt(
+        masks = {}
+        for name, unet in (("unet_pretrained", pre), ("unet", scratch)):
+            data = unet.config.data
+            masks[name] = predict_volume(
+                unet.model,
+                images[phase],
+                spacing_mm,
+                models.device,
+                data.target_spacing_mm,
+                data.size,
+                centre_xy=centre,
+            )
+        tta_label, doubt = predict_with_doubt(
             pre.model,
             images[phase],
             spacing_mm,
             models.device,
-            data.target_spacing_mm,
-            data.size,
+            pre.config.data.target_spacing_mm,
+            pre.config.data.size,
             centre_xy=centre,
         )
-        second = predict_volume(
-            scratch.model,
-            images[phase],
-            spacing_mm,
-            models.device,
-            scratch.config.data.target_spacing_mm,
-            scratch.config.data.size,
-            centre_xy=centre,
-        )
-        layers[phase] = {"unet_pretrained": label, "unet": second, "doubt": doubt}
-        scores[phase] = doubt_score(doubt, label)
+        layers[phase] = {**masks, "doubt": doubt}
+        scores[phase] = doubt_score(doubt, tta_label)
     return layers, scores
 
 
@@ -153,9 +193,9 @@ def explain(
             level = "High " if value > rng["mean"] else "Low "
         verb = "pushed toward" if contributions[i] > 0 else "pushed away from"
         label = LABELS[name]
-        text = (
-            f"{level}{label[0].lower() + label[1:] if level else label} {verb} {GROUP_NAMES[group]}"
-        )
+        # "High LV ejection fraction", but "Low myocardial mass": keep acronyms in capitals.
+        shown = label if not level or label[:2].isupper() else label[0].lower() + label[1:]
+        text = f"{level}{shown} {verb} {GROUP_NAMES[group]}"
         reasons.append(
             {
                 "feature": name,
@@ -211,7 +251,8 @@ def analyse(
             "flagged": bool(score > models.doubt_threshold),
         },
         "models": {
-            "measurements_from": f"unet_resnet34 ({models.unet_pretrained.run}) with TTA",
+            "measurements_from": f"unet_resnet34 ({models.unet_pretrained.run})",
+            "doubt_from": "10-view TTA of the same model",
             "unet": models.unet.run,
             "unet_pretrained": models.unet_pretrained.run,
             "classifier": "xgboost, trained on expert features of 100 training patients",
