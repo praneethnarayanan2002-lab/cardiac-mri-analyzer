@@ -8,8 +8,6 @@ Writes runs/<name>/<timestamp>-seed<k>/ with config.yaml, log.csv, best.pt and g
 import argparse
 import csv
 import math
-import random
-import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import replace
@@ -21,7 +19,6 @@ import torch
 import yaml
 from monai.data import DataLoader
 from monai.losses import DiceCELoss
-from monai.utils import set_determinism
 from torch import nn
 
 from cardiac.config import Config, load_config
@@ -32,21 +29,7 @@ from cardiac.data.splits import load_splits
 from cardiac.infer import build_model, pick_device, predict_probabilities
 from cardiac.metrics import STRUCTURES, dice
 from cardiac.models.unet import count_parameters
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    set_determinism(seed=seed)
-
-
-def git_commit() -> str:
-    def run(*args: str) -> str:
-        return subprocess.run(["git", *args], capture_output=True, text=True).stdout.strip()
-
-    commit = run("rev-parse", "HEAD") or "unknown"
-    return commit + (" (uncommitted changes)" if run("status", "--porcelain") else "")
+from cardiac.repro import git_commit, set_seed
 
 
 def warmup_cosine(warmup_epochs: int, max_epochs: int) -> Callable[[int], float]:
