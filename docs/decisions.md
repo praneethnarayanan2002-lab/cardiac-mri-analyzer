@@ -733,3 +733,114 @@ convolutions and XGBoost fits ran without a crash.
 **Trade-offs.** A setting that must come before imports is easy to break by reordering code, so each
 place has a comment pointing here. A cleaner fix would be one shared `libomp` for both libraries,
 which needs building one of them from source.
+
+---
+
+## D29. The 5 sample patients are chosen by a rule
+
+**Context.** The app's home page offers one sample patient per diagnosis group. Picking them by eye
+would invite picking the ones that look best.
+
+**Decision.** Within each group, sort the 10 test patients by the pretrained U-Net's (seed 0) mean
+Dice and take the 5th, the lower of the two middle ones. The rule lives in
+`scripts/cache_sample_cases.py:choose_samples()` and the result is recorded in
+`results/samples.json`: NOR patient107, MINF patient118, DCM patient122, HCM patient142, RV
+patient140.
+
+**Consequences I kept.** The DCM sample is diagnosed as MINF (the most common mistake, D25), and 4
+of the 5 are flagged as doubtful. Both are honest pictures of the system, so they stay.
+
+**Trade-offs.** Median-Dice patients show typical segmentation, not the failure cases; the comparison
+page and `figures/doubt_maps.png` show the extremes.
+
+---
+
+## D30. "Normal ranges" come from our own normal patients
+
+**Context.** The plan's measurement card shows each value against a normal range. Published reference
+ranges exist, but they were measured with other software, other conventions (papillary muscles,
+basal slice rules) and other scanners, and our numbers differ systematically (D25: our HCM mass index
+median is below the published 110 g/m² threshold). The project rule is also that every number shown
+comes from `results/`.
+
+**Decision.** `scripts/normal_ranges.py` computes, for every measurement, mean ± 2 SD over the 20
+NOR patients among the 100 training patients, from their expert masks with the same code. Status:
+**normal** within 2 SD, **borderline** between 2 and 3 SD, **abnormal** beyond. Every screen and the
+PDF say what the range is and that it is not a clinical reference range.
+
+**Trade-offs.** 20 patients is a small reference group, and mean ± 2 SD assumes a roughly symmetric
+spread. A clinical deployment would use published, scanner-matched ranges.
+
+---
+
+## D31. The app shows the evaluated pipeline; TTA is used only for doubt
+
+**Context.** The first backend version measured the TTA-averaged masks. For test patient129 that gave
+RV EDV 220 mL and diagnosis HCM, while `results/` (single-view masks) says 205 mL and RV, and
+`flow.md` §6 walks through the single-view case.
+
+**Decision.** Masks, measurements and diagnosis in the app come from the single-view pretrained U-Net
+(seed 0), exactly as evaluated: for the 5 samples every measurement matches
+`results/test/clinical_unet_resnet34_seed0.csv` to the second decimal. TTA runs alongside only to
+produce the doubt map and doubt score, computed exactly as in `cardiac.evaluate_uncertainty`.
+
+**The doubt flag.** A case is flagged when its doubt score is above the 80th percentile of the
+validation patients' scores (seed 0: 0.078), meaning "in the top 20% of doubt". On the test set this
+flags 32% of patients for seed 0 (22% for seeds 1 and 2): 20 validation patients are few to set a
+percentile on. I left the threshold as it is rather than move it after looking at the test set.
+
+**Trade-offs.** TTA's masks were slightly better on average (mean Dice 0.907 vs 0.903), so the app
+gives up a small gain for consistency with every published number.
+
+---
+
+## D32. FastAPI instead of Flask
+
+| | FastAPI | Flask |
+|---|---|---|
+| request/response validation | built in (pydantic), automatic 422s | by hand or with an extension |
+| API docs | generated at `/docs` | extension |
+| file uploads, async | built in | built in / limited |
+| startup hooks (load models once) | `lifespan` | app factory + globals |
+
+**Decision.** FastAPI. Typed request and response models double as documentation for the frontend,
+and form validation (height and weight ranges) is declared, not written.
+
+---
+
+## D33. Masks travel as label PNGs, coloured in the browser
+
+**Options.** Coloured overlay PNGs from the server; JSON arrays or run-length-encoded masks; or
+**label PNGs** whose pixel values are the labels 0–3.
+
+**Decision.** Label PNGs. One byte per pixel, lossless, and decoded by the browser natively. Measured on
+sample patient140: a 192 × 192 mask slice is 317–739 bytes as a label PNG and about 74 kB as a JSON
+array, 100–234 times bigger. (The greyscale image slice itself is 18–20 kB.) The colours, opacity
+and colour-blind patterns are then a frontend concern: switching opacity or model never asks the
+server again, whereas server-coloured overlays would need a request per opacity setting.
+
+---
+
+## D34. Uploads are re-centred on the LV
+
+**Context.** Every training image was cropped around the expert's LV centre (D9). An uploaded scan
+can have the heart anywhere in a larger field of view, and a centre crop could miss it.
+
+**Decision.** Find the LV with a first pass, then crop around its centre and repeat until it moves
+less than 2 mm (at most 3 passes); do nothing if it is already within 16 mm of the centre, which is
+always the case for the mirror's scans. Centring on the LV, not the whole heart, reproduces the
+training framing: an earlier version used the whole heart's centre, which the RV pulls sideways, and
+patient129 padded off-centre came out with LV EF 67% instead of 55%.
+
+**Trade-offs.** If the first pass finds no LV at all (a very unusual field of view), the centre crop is
+used as is. The plan also mentioned uploading a 4D cine plus frame numbers; only separate ED and ES
+frames are accepted, which every ACDC-style dataset provides.
+
+---
+
+## D35. ReportLab for the PDF, not the browser's print
+
+**Decision.** The server builds the PDF with ReportLab from the case summary. It looks the same in
+every browser, can be fetched by URL (the static demo ships pre-built PDFs), and its content is tied
+to the same summary as the screen. Browser print would depend on each browser's layout and couldn't be
+precomputed for the demo.

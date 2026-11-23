@@ -142,3 +142,73 @@ also tell it which slices contain each structure. Second, the expensive image en
 slice and the cheap decoder once per box, so trying four jitter levels costs little more than one.
 `decisions.md` D19 explains why these oracle boxes make this a best case for MedSAM, not a fair
 real-world comparison.
+
+## 4. The backend, `backend/app/` (Phase 6)
+
+Three layers. Routes only translate HTTP to Python calls; services do the work; the research package
+does the science. Nothing in `backend/` trains a model or computes a statistic that is not in
+`src/cardiac/`.
+
+```mermaid
+flowchart TD
+    subgraph Routes["routes/ (HTTP)"]
+        RI["info.py<br/>GET /api/health<br/>GET /api/samples<br/>GET /api/metrics/summary"]
+        RC["cases.py<br/>POST /api/analyze<br/>GET /api/cases/{id}<br/>GET .../slice/{phase}/{k}?layer=<br/>GET .../cine/{k}?frame=<br/>GET .../report.pdf"]
+    end
+    subgraph Services["services/"]
+        MO["models.py<br/>load once at startup"]
+        AN["analysis.py<br/>segment, measure,<br/>diagnose, explain"]
+        UP["uploads.py<br/>read + check NIfTI"]
+        IM["images.py<br/>PNG bytes"]
+        ST["store.py<br/>samples (disk),<br/>uploads (memory, 1 h)"]
+        ME["metrics.py<br/>reshape results/"]
+    end
+    RP["report.py<br/>ReportLab PDF"]
+    subgraph Pkg["src/cardiac/ (research package)"]
+        INF["infer.predict_volume"]
+        UNC["uncertainty.predict_with_doubt"]
+        CL["clinical.measure_patient"]
+        CLS["classify.FEATURES"]
+    end
+    RC --> UP & AN & ST & IM & RP
+    RI --> ST & ME
+    AN --> MO & INF & UNC & CL & CLS
+    MO --> F1[("runs/unet_*/…-seed0/best.pt<br/>runs/classifier/xgboost.json")]
+    MO --> F2[("results/normal_ranges.json<br/>results/val/uncertainty_…seed0.csv")]
+    ST --> F3[("data/cache/samples/*.npz + *.json")]
+    ME --> F4[("results/*.json, results/test/*.csv")]
+```
+
+| File | Job |
+|---|---|
+| `__init__.py` | sets `OMP_NUM_THREADS=1` before torch or xgboost load (`decisions.md` D28) |
+| `config.py` | paths and limits, each overridable by an environment variable |
+| `main.py` | `create_app()`: CORS for the Vite dev server, routers, model loading at startup |
+| `state.py` | the per-app state handed to every route: settings, models, case store |
+| `schemas.py` | response shapes (pydantic); `frontend/src/data/types.ts` mirrors them |
+| `services/models.py` | both U-Nets (seed 0), the XGBoost model and its SHAP explainer, normal ranges, doubt threshold |
+| `services/analysis.py` | re-centring, both U-Nets, TTA doubt, `measure_patient`, diagnosis and plain-word reasons |
+| `services/uploads.py` | NIfTI from bytes in a temporary folder, with checks that explain what's wrong |
+| `services/images.py` | windowing and PNG encoding; one orientation function for every layer |
+| `services/store.py` | sample cases from `data/cache/samples/`, uploads in memory for an hour |
+| `services/metrics.py` | the comparison page's data, selected from `results/` |
+| `report.py` | the one-page PDF |
+
+**Data model on the wire.** A case is one JSON summary plus PNGs fetched slice by slice:
+
+| What | Shape / type | Encoding |
+|---|---|---|
+| image slice | (X, Y) uint8, windowed 1–99th percentile over the whole volume | 8-bit greyscale PNG |
+| mask slice (`unet`, `unet_pretrained`, `medsam`, `expert`) | (X, Y) uint8, values 0–3 | 8-bit greyscale PNG; the browser maps 0–3 to colours |
+| doubt slice | (X, Y) uint8, normalised entropy × 255 | 8-bit greyscale PNG |
+| cine slice (samples only) | (X, Y) uint8 per frame | 8-bit greyscale PNG |
+| summary | measurements with normal ranges and status, probabilities, top-5 SHAP reasons, doubt score and flag, model versions | JSON (`CaseSummary`) |
+
+Every 2D plane goes through `images.to_display()` (transpose, then flip rows), so image, masks and
+doubt map always line up and match the orientation of the figures in `figures/`.
+
+**What the app shows is what was evaluated.** Masks, measurements and diagnosis come from the
+single-view pretrained U-Net, seed 0: for the 5 sample patients, every measurement equals
+`results/test/clinical_unet_resnet34_seed0.csv` to the second decimal, and every diagnosis equals
+`results/test/diagnosis_predictions.csv`. TTA is used for the doubt map and score only, as in
+`cardiac.evaluate_uncertainty` (`decisions.md` D31).
