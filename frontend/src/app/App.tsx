@@ -65,8 +65,8 @@ function Layout() {
       )}
       <header className="sticky top-0 z-10 border-b border-border bg-bg/90 backdrop-blur">
         <nav className="mx-auto flex max-w-7xl items-center gap-1 px-4 py-2.5 sm:px-6" aria-label="Main">
-          <NavLink to="/" className="mr-3 flex items-center gap-2 text-sm font-semibold text-text">
-            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="h-6 w-6" />
+          <NavLink to="/" className="mr-2 flex shrink-0 items-center gap-2 text-sm font-semibold text-text">
+            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="h-6 w-6 shrink-0" />
             <span className="hidden sm:inline">Cardiac MRI Analyzer</span>
           </NavLink>
           <NavLink to="/" end className={link}>
@@ -92,7 +92,8 @@ function Layout() {
         <Outlet />
       </main>
       <footer className="border-t border-border px-4 py-5 text-center text-xs text-muted">
-        Research demo built on the ACDC dataset. Not a medical device; not for clinical use.
+        Research demo, not a medical device; not for clinical use. Images: ACDC dataset (Bernard et
+        al., IEEE TMI 2018), CC BY-NC-SA 4.0.
       </footer>
     </div>
   );
