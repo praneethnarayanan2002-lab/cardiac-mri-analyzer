@@ -1,0 +1,102 @@
+"""Running a trained segmenter on whole 3D frames, plus post-processing."""
+
+from pathlib import Path
+
+import numpy as np
+import torch
+from scipy import ndimage
+from torch import nn
+
+from cardiac.config import Config, DataConfig, TrainConfig
+from cardiac.data.preprocess import prepare, restore
+from cardiac.models.unet import build_scratch_unet
+
+CAVITIES = (1, 3)  # RV and LV; the myocardium is a ring and must keep its hole
+
+
+def pick_device() -> torch.device:
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
+def build_model(config: Config) -> nn.Module:
+    if config.model == "unet_scratch":
+        return build_scratch_unet(config.dropout)
+    raise ValueError(f"unknown model {config.model!r}")
+
+
+def load_checkpoint(path: Path, device: torch.device) -> tuple[nn.Module, Config]:
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    raw = dict(checkpoint["config"])
+    config = Config(
+        **{k: v for k, v in raw.items() if k not in ("data", "train")},
+        data=DataConfig(**raw["data"]),
+        train=TrainConfig(**raw["train"]),
+    )
+    model = build_model(config).to(device)
+    model.load_state_dict(checkpoint["state_dict"])
+    model.eval()
+    return model, config
+
+
+@torch.no_grad()
+def predict_probabilities(
+    model: nn.Module, slices: np.ndarray, device: torch.device, batch_size: int = 32
+) -> np.ndarray:
+    """(S, H, W) normalised slices -> (S, 4, H, W) softmax probabilities."""
+    model.eval()
+    outputs = []
+    for start in range(0, len(slices), batch_size):
+        batch = torch.from_numpy(slices[start : start + batch_size, None]).to(device)
+        outputs.append(torch.softmax(model(batch), dim=1).cpu().numpy())
+    return np.concatenate(outputs).astype(np.float32)
+
+
+def keep_largest_component(label: np.ndarray) -> np.ndarray:
+    """Keeps only the largest 3D connected blob of each structure; stray blobs become background."""
+    out = label.copy()
+    full_connectivity = np.ones((3, 3, 3), dtype=bool)
+    for value in np.unique(label):
+        if value == 0:
+            continue
+        components, n = ndimage.label(label == value, structure=full_connectivity)
+        if n <= 1:
+            continue
+        sizes = np.bincount(components.ravel())[1:]
+        largest = int(np.argmax(sizes)) + 1
+        out[(components != largest) & (components > 0)] = 0
+    return out
+
+
+def fill_cavity_holes(label: np.ndarray) -> np.ndarray:
+    """Fills background holes inside the LV and RV cavities, slice by slice."""
+    out = label.copy()
+    for k in range(label.shape[2]):
+        plane = out[:, :, k]
+        for value in CAVITIES:
+            filled = ndimage.binary_fill_holes(plane == value)
+            plane[filled & (plane == 0)] = value
+    return out
+
+
+def postprocess(label: np.ndarray) -> np.ndarray:
+    return fill_cavity_holes(keep_largest_component(label))
+
+
+def predict_volume(
+    model: nn.Module,
+    image: np.ndarray,
+    spacing_mm: tuple[float, float, float],
+    device: torch.device,
+    target_mm: float = 1.0,
+    size: int = 192,
+    apply_postprocess: bool = True,
+) -> np.ndarray:
+    """(X, Y, Z) image on its own grid -> (X, Y, Z) uint8 label map on the same grid."""
+    prepared = prepare(image, spacing_mm, None, target_mm, size)
+    probs = predict_probabilities(model, prepared.image, device)
+    label = restore(probs.argmax(axis=1).astype(np.uint8), prepared.geometry)
+    return postprocess(label) if apply_postprocess else label
