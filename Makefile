@@ -1,7 +1,7 @@
 # Every Python command goes through `uv run`, which uses the project's .venv/ and never a global Python.
 # Targets for later phases (eval, api, ui) are added in the phase that builds them.
 
-.PHONY: setup data data-lite explore train test lint format typecheck notebook clean
+.PHONY: setup data data-lite explore train eval-val test lint format typecheck notebook clean
 
 setup:
 	uv python install 3.11
@@ -22,6 +22,11 @@ explore:
 
 train:
 	uv run python -m cardiac.train --config configs/unet_scratch.yaml
+
+# Validation-set evaluation of one run, plus its figures: make eval-val RUN=runs/unet_scratch/<folder>
+eval-val:
+	uv run python -m cardiac.evaluate --run $(RUN) --split val
+	uv run python scripts/plot_run.py --run $(RUN)
 
 test:
 	uv run pytest
