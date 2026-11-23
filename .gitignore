@@ -9,7 +9,9 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Patient data and model weights never go into git (see docs/decisions.md)
-data/
+data/*
+# Patient ids only, no images: committed so every run uses the same split.
+!data/splits.json
 runs/
 *.pt
 *.pth
