@@ -102,11 +102,11 @@ def bland_altman_panel(
     ax.axhline(ba["bias"], color="#3d3d3a", linewidth=1.2, zorder=2)
     for edge in ("loa_low", "loa_high"):
         ax.axhline(ba[edge], color="#3d3d3a", linewidth=1, linestyle="--", zorder=2)
-    x_right = ax.get_xlim()[1]
-    for key, text in (("bias", "bias"), ("loa_high", "+1.96 SD"), ("loa_low", "-1.96 SD")):
-        ax.annotate(f"{text} {ba[key]:+.1f}", (x_right, ba[key]), xytext=(-2, 2),
-                    textcoords="offset points", ha="right", va="bottom", fontsize=7,
-                    color="#3d3d3a")  # fmt: skip
+    # Labels sit just outside the right edge (x in axes units, y in data units), clear of the dots.
+    edge = ax.get_yaxis_transform()
+    for key, text in (("bias", "bias"), ("loa_high", "+LoA"), ("loa_low", "-LoA")):
+        ax.text(1.01, ba[key], f"{text} {ba[key]:+.1f}", transform=edge, ha="left",
+                va="center", fontsize=7, color="#3d3d3a")  # fmt: skip
     ax.set_title(title, fontsize=9)
     ax.set_xlabel(f"mean of model and expert ({unit})", fontsize=8)
     ax.set_ylabel(f"model - expert ({unit})", fontsize=8)
