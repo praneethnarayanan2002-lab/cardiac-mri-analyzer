@@ -1,8 +1,8 @@
 # Every Python command goes through `uv run`, which uses the project's .venv/ and never a global Python.
-# Targets for later phases (ui, demo) are added in the phase that builds them.
+# Targets for later phases (demo) are added in the phase that builds them.
 
-.PHONY: setup data data-lite explore train eval eval-val samples api test lint format typecheck \
-	notebook clean
+.PHONY: setup data data-lite explore train eval eval-val samples api ui ui-setup test lint format \
+	typecheck notebook clean
 
 setup:
 	uv python install 3.11
@@ -73,13 +73,22 @@ api:
 	CARDIAC_DEVICE=$(DEVICE) uv run uvicorn backend.app.main:app --port 8000 --reload \
 		--reload-dir backend --reload-dir src
 
+# The frontend on http://localhost:5173, talking to `make api` (run both). Needs Node 22+.
+ui-setup:
+	cd frontend && npm ci
+
+ui:
+	cd frontend && npm run dev
+
 test:
 	uv run pytest
+	cd frontend && npm test
 
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
 	uv run mypy
+	cd frontend && npm run lint
 
 format:
 	uv run ruff format .
