@@ -74,11 +74,20 @@ def prepare(
     label: np.ndarray | None = None,
     target_mm: float = 1.0,
     size: int = 192,
+    centre_xy: tuple[float, float] | None = None,
 ) -> Prepared:
-    """Converts one (X, Y, Z) frame into network-ready (S, size, size) slices, centre-cropped."""
+    """Converts one (X, Y, Z) frame into network-ready (S, size, size) slices.
+
+    The crop is centred on the image centre, or on `centre_xy` (voxel coordinates in the original
+    grid) when given: uploaded scans are not centred on the heart the way the mirror's are."""
     resampled = resample_inplane(image.astype(np.float32), spacing_mm, target_mm, order=1)
     rx, ry = resampled.shape[:2]
-    start = ((rx - size) // 2, (ry - size) // 2)
+    if centre_xy is None:
+        start = ((rx - size) // 2, (ry - size) // 2)
+    else:
+        cx = centre_xy[0] * spacing_mm[0] / target_mm
+        cy = centre_xy[1] * spacing_mm[1] / target_mm
+        start = (round(cx - size / 2), round(cy - size / 2))
     geometry = Geometry(
         original_shape=(image.shape[0], image.shape[1], image.shape[2]),
         original_spacing_mm=spacing_mm,

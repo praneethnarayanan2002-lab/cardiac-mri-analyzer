@@ -102,9 +102,13 @@ def predict_volume(
     target_mm: float = 1.0,
     size: int = 192,
     apply_postprocess: bool = True,
+    centre_xy: tuple[float, float] | None = None,
 ) -> np.ndarray:
-    """(X, Y, Z) image on its own grid -> (X, Y, Z) uint8 label map on the same grid."""
-    prepared = prepare(image, spacing_mm, None, target_mm, size)
+    """(X, Y, Z) image on its own grid -> (X, Y, Z) uint8 label map on the same grid.
+
+    `centre_xy` moves the crop window (see `prepare`); None is the centre crop used everywhere in
+    training and evaluation."""
+    prepared = prepare(image, spacing_mm, None, target_mm, size, centre_xy)
     probs = predict_probabilities(model, prepared.image, device)
     label = restore(probs.argmax(axis=1).astype(np.uint8), prepared.geometry)
     return postprocess(label) if apply_postprocess else label

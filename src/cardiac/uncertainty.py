@@ -70,12 +70,13 @@ def predict_with_doubt(
     device: torch.device,
     target_mm: float = 1.0,
     size: int = 192,
+    centre_xy: tuple[float, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """(X, Y, Z) image -> (TTA label map uint8, doubt map uint8 0-255), both on the image's grid.
 
     The doubt map is normalised entropy x 255, stored as uint8 so it can go through the same
     restore() as a label map and be sent to the browser as a PNG."""
-    prepared = prepare(image, spacing_mm, None, target_mm, size)
+    prepared = prepare(image, spacing_mm, None, target_mm, size, centre_xy)
     probs = tta_probabilities(model, prepared.image, device)
     label = postprocess(restore(probs.argmax(axis=1).astype(np.uint8), prepared.geometry))
     doubt = np.round(normalised_entropy(probs) * 255).astype(np.uint8)

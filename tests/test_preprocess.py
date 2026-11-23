@@ -63,3 +63,23 @@ def test_crop_or_pad_handles_negative_start() -> None:
     assert out.shape == (8, 8, 1)
     assert out.sum() == 16
     assert out[2:6, 2:6].all()
+
+
+@pytest.mark.parametrize("spacing", [(1.0, 1.0, 10.0), (1.5625, 1.5625, 10.0)])
+def test_off_centre_crop_follows_the_heart_and_restores(
+    spacing: tuple[float, float, float],
+) -> None:
+    """A heart far from the image centre: cropping around it must keep the whole heart in the
+    window, and restore() must still put every label back where it was."""
+    shape = (320, 300, 4)
+    label = np.zeros(shape, dtype=np.uint8)
+    label[230:270, 40:80] = 3  # far off centre, near one edge
+    image = np.random.default_rng(0).random(shape).astype(np.float32)
+    centred = prepare(image, spacing, label, size=128)
+    assert centred.label is not None and (centred.label == 3).sum() == 0  # missed entirely
+    moved = prepare(image, spacing, label, size=128, centre_xy=(250.0, 60.0))
+    assert moved.label is not None and (moved.label == 3).any()
+    back = restore(moved.label, moved.geometry)
+    assert back.shape == shape
+    agreement = ((back == 3) == (label == 3)).mean()
+    assert agreement == 1.0 if spacing[0] == 1.0 else agreement > 0.99
