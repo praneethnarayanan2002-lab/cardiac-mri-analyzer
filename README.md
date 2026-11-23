@@ -9,10 +9,10 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 ## Status
 
-The project is being built in phases (see `docs/`). Phases 0–6 are done: setup, data, three segmenters
+The project is being built in phases (see `docs/`). Phases 0–7 are done: setup, data, three segmenters
 evaluated once on the 50 held-out test patients, the clinical numbers derived from their masks, a
-diagnosis model with explanations, an uncertainty score, and the backend API. The frontend comes
-next. Every number below comes from a file in `results/`.
+diagnosis model with explanations, an uncertainty score, the backend API and the web app. The public
+static demo comes next. Every number below comes from a file in `results/`.
 
 ## Results so far: segmentation on the test set
 
@@ -128,6 +128,8 @@ make train    # both U-Nets, 3 seeds each (about 2.5 hours on an Apple M4)
 make eval     # test-set evaluation, clinical numbers, uncertainty, diagnosis → results/, figures/
 make samples  # normal ranges and the 5 precomputed sample patients for the app
 make api      # backend on http://localhost:8000 (interactive API docs at /docs)
+make ui-setup # once: installs the frontend's pinned packages (needs Node 22+)
+make ui       # the app on http://localhost:5173, talking to the backend
 ```
 
 The trained weights are not in git (`docs/decisions.md` D5), so `make api` needs `make train` and

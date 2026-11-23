@@ -844,3 +844,49 @@ frames are accepted, which every ACDC-style dataset provides.
 every browser, can be fetched by URL (the static demo ships pre-built PDFs), and its content is tied
 to the same summary as the screen. Browser print would depend on each browser's layout and couldn't be
 precomputed for the demo.
+
+---
+
+## D36. React + Vite instead of Gradio or Streamlit
+
+**Context.** Gradio and Streamlit build an ML demo in a few dozen lines. The plan asks for a viewer
+with slice scrolling, cine, model compare, keyboard control, and a static public demo.
+
+**Decision.** React + TypeScript, built by Vite. Gradio has no slice viewer with overlays, offers
+little control over layout and motion, and needs a running Python server, which rules out a free
+static demo (D40). React builds to plain files.
+
+**Trade-offs.** Much more code, a Node toolchain next to Python, and types that must be kept in step
+with the backend by hand (`frontend/src/data/types.ts` ↔ `backend/app/schemas.py`).
+
+---
+
+## D37. Canvas 2D instead of WebGL for the viewer
+
+**Decision.** One `<canvas>` with the 2D API. Each slice is a 192 × 192 image plus a mask of the same
+size; drawing three such layers is trivial for the 2D canvas, and it gives nearest-neighbour scaling
+for masks and smooth scaling for the image with one flag. WebGL would only pay off for volume
+rendering or very large images, neither of which is in scope.
+
+---
+
+## D38. One app, two data sources
+
+**Decision.** Every page talks to a `DataSource` interface (MASTER_PLAN 9.6). `apiSource` calls the
+FastAPI backend; `staticSource` reads files written by `scripts/export_demo.py`. The choice is made at
+build time (`vite build --mode static` sets `VITE_DATA_MODE=static`), and the static build hides the
+upload form. One code base means the public demo can never drift from the real app.
+
+---
+
+## D39. Tailwind with a handful of hand-built controls, no component library
+
+**Decision.** Tailwind utilities on the design tokens, plus seven small components in
+`components/ui/controls.tsx` (button, card, segmented control, toggle, skeleton, error state, icons).
+A component library would bring its own look to fight against, a large bundle and an icon font; the
+app needs few controls, and building them on the tokens keeps light and dark mode in one place.
+Icons are inline SVG, so the app makes no third-party requests.
+
+**One bug this caught.** The first version put an inline `<style>` element inside the home page's SVG
+heart. React 19 treats `<style>` as a hoistable resource, and under StrictMode's simulated unmount the
+page crashed with "destroy is not a function". The animation now lives in `globals.css`.

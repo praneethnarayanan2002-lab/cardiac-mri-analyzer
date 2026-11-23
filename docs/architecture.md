@@ -212,3 +212,55 @@ single-view pretrained U-Net, seed 0: for the 5 sample patients, every measureme
 `results/test/clinical_unet_resnet34_seed0.csv` to the second decimal, and every diagnosis equals
 `results/test/diagnosis_predictions.csv`. TTA is used for the doubt map and score only, as in
 `cardiac.evaluate_uncertainty` (`decisions.md` D31).
+
+## 5. The frontend, `frontend/` (Phase 7)
+
+React + TypeScript, built by Vite, styled with Tailwind on the design tokens in
+`src/styles/globals.css`. Four pages, one data-source interface, one small store.
+
+```mermaid
+flowchart TD
+    App["app/App.tsx<br/>hash router, theme, layout"] --> Home["HomePage<br/>samples, upload"]
+    App --> WS["WorkspacePage"]
+    App --> MC["ComparisonPage"]
+    App --> HOW["HowItWorksPage"]
+    Home --> UF["UploadForm"]
+    WS --> V["ScanViewer ×1 or ×2 (compare)<br/>canvas: image, mask, doubt"]
+    WS --> VC["ViewerControls<br/>slice, ED/ES, cine, model,<br/>opacity, doubt, compare, keys"]
+    WS --> LG["Legend"]
+    WS --> CB["ConfidenceBanner"]
+    WS --> MP["MeasurementsCard → RangeBar, StatusChip"]
+    WS --> DX["DiagnosisCard"]
+    WS --> WHY["WhyCard (SHAP)"]
+    MC --> CH["charts: DiceBars, BlandAltman,<br/>ConfusionMatrix, RiskCoverage, JitterCurve"]
+    V & VC --> ST[("stores/viewerStore.ts<br/>Zustand: phase, slice, layer,<br/>opacity, doubt, compare, cine, zoom")]
+    V --> IC["lib/imageCache.ts<br/>decode PNG → coloured canvas"]
+    IC --> CM["lib/colormap.ts<br/>labels 0–3 → RGBA, doubt → purple ramp"]
+    Home & WS & MC --> DS{{"data/dataSource.ts"}}
+    DS -->|"VITE_DATA_MODE=api"| API["apiSource.ts → FastAPI /api"]
+    DS -->|"VITE_DATA_MODE=static"| STA["staticSource.ts → public/demo/*"]
+```
+
+```
+frontend/src/
+├── app/App.tsx           router (hash), theme toggle, header, footer, demo banner
+├── pages/                HomePage, WorkspacePage, ComparisonPage, HowItWorksPage
+├── components/
+│   ├── viewer/           ScanViewer (canvas), ViewerControls (+ keyboard, cine), Legend
+│   ├── panels/           MeasurementsCard, RangeBar, StatusChip, DiagnosisCard, WhyCard, ConfidenceBanner
+│   ├── charts/           hand-built SVG charts, scale helpers, model names
+│   ├── ui/controls.tsx   Button, Card, Segmented, Toggle, Skeleton, ErrorState, Icon
+│   └── UploadForm.tsx
+├── data/                 types.ts (mirrors backend/app/schemas.py), dataSource, apiSource, staticSource, http
+├── lib/                  colormap, normalRanges, format, imageCache, useLoad, useCountUp (+ helpers.test.ts)
+├── stores/viewerStore.ts
+└── styles/globals.css    tokens, fonts, motion, reduced-motion rules
+```
+
+**How a slice is drawn.** For the current case, phase and slice, `ScanViewer` asks the data source for
+three URLs: the greyscale image, the chosen model's label PNG and (if on) the doubt PNG.
+`imageCache.getLayer()` loads each once, draws it onto an off-screen canvas, and for labels and doubt
+rewrites the pixels through `colormap.ts`. The viewer then draws the image (smoothed), the mask
+(nearest-neighbour, at the chosen opacity, cross-fading over 200 ms when the model changes) and the
+doubt map on one canvas, with the current zoom and pan. Every slice of both phases is preloaded in the
+background, so scrolling never waits.
