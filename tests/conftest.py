@@ -1,4 +1,10 @@
+import os
 import sys
+
+# torch and xgboost each bring their own copy of the OpenMP runtime on macOS, and two copies running
+# thread pools in one process crash (docs/decisions.md D28). The tests use both, so start OpenMP
+# single-threaded before either is imported. Must stay above every other import.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import pytest
 

@@ -4,11 +4,14 @@ import random
 import subprocess
 
 import numpy as np
-import torch
-from monai.utils import set_determinism
 
 
 def set_seed(seed: int) -> None:
+    # Imported here, not at the top: scripts that only need git_commit() (the diagnosis script)
+    # must not load torch next to xgboost (docs/decisions.md D28).
+    import torch
+    from monai.utils import set_determinism
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
