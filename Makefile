@@ -29,7 +29,8 @@ train:
 		done; \
 	done
 
-# Test-set evaluation of every trained run and of MedSAM, then the summary tables and figures.
+# Test-set evaluation of every trained run and of MedSAM, then clinical numbers, uncertainty and
+# diagnosis, each with its summary tables and figures.
 # Run once, after all training is finished. Segmentation first, then clinical numbers from the same
 # frozen models; cardiac.measure checks that its masks match the ones evaluate scored.
 eval:
@@ -46,6 +47,13 @@ eval:
 	done
 	uv run python -m cardiac.measure --medsam --split test --confirm-test
 	uv run python scripts/summarize_clinical.py --split test
+	for run in runs/unet_resnet34/*/; do \
+		uv run python -m cardiac.evaluate_uncertainty --run "$$run" --split test --confirm-test \
+			|| exit 1; \
+	done
+	uv run python scripts/summarize_uncertainty.py --split test
+	uv run python scripts/plot_doubt_maps.py --run $(firstword $(wildcard runs/unet_resnet34/*-seed0))
+	uv run python scripts/run_diagnosis.py
 
 # Validation-set evaluation of one run, plus its figures: make eval-val RUN=runs/unet_scratch/<folder>
 eval-val:
