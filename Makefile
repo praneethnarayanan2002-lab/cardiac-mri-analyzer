@@ -65,7 +65,7 @@ eval-val:
 # (data/cache/samples/, git-ignored). Needs the trained runs and `make eval`.
 samples:
 	uv run python scripts/normal_ranges.py
-	CARDIAC_DEVICE=$(DEVICE) uv run python scripts/cache_sample_cases.py
+	PYTHONPATH=. CARDIAC_DEVICE=$(DEVICE) uv run python scripts/cache_sample_cases.py
 
 # The backend on http://localhost:8000 (API docs at /docs). CPU by default; `make api DEVICE=mps`.
 DEVICE ?= cpu

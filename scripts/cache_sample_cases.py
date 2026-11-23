@@ -1,7 +1,7 @@
 """Precompute the app's 5 sample patients into data/cache/samples/ (git-ignored).
 
 Usage:
-    uv run python scripts/cache_sample_cases.py
+    PYTHONPATH=. uv run python scripts/cache_sample_cases.py   # or: make samples DEVICE=mps
 
 One test patient per diagnosis group, chosen by a fixed rule (docs/decisions.md D29): within each
 group, sort the 10 test patients by the pretrained U-Net's (seed 0) mean Dice and take the 5th, the
