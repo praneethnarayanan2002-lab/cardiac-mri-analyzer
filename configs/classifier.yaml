@@ -1,0 +1,13 @@
+# Diagnosis models (cardiac.classify, scripts/run_diagnosis.py). Trained on expert features of the
+# 100 official training patients; hyperparameters picked by stratified k-fold CV on those patients.
+cv_folds: 5
+seed: 0
+
+# Shallow trees: with 100 patients and 18 features, deep trees would memorise individual patients.
+xgb_grid:
+  max_depth: [3, 4]
+  n_estimators: [100, 300]
+  learning_rate: [0.03, 0.1]
+
+# Inverse regularisation strength for logistic regression (smaller = simpler model).
+logreg_c: [0.01, 0.1, 1.0, 10.0, 100.0]
