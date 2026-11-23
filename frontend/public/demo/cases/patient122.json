@@ -1,0 +1,297 @@
+{
+ "id": "patient122",
+ "source": "sample",
+ "pid": "patient122",
+ "true_group": "DCM",
+ "layers": [
+  "image",
+  "unet",
+  "unet_pretrained",
+  "medsam",
+  "expert",
+  "doubt"
+ ],
+ "n_frames": 14,
+ "ed_frame": 0,
+ "es_frame": 5,
+ "spacing_mm": [
+  1.0,
+  1.0,
+  10.0
+ ],
+ "shape": [
+  192,
+  192,
+  9
+ ],
+ "height_cm": 165.0,
+ "weight_kg": 65.0,
+ "bsa_m2": 1.726,
+ "measurements": [
+  {
+   "key": "lv_edv_ml",
+   "label": "LV end-diastolic volume",
+   "unit": "mL",
+   "value": 223.13,
+   "range": {
+    "low": 76.59322959398025,
+    "high": 183.1157704060198,
+    "mean": 129.85450000000003,
+    "sd": 26.63063520300989,
+    "n": 20
+   },
+   "status": "abnormal"
+  },
+  {
+   "key": "lv_esv_ml",
+   "label": "LV end-systolic volume",
+   "unit": "mL",
+   "value": 153.14,
+   "range": {
+    "low": 26.756660161110606,
+    "high": 76.31933983888939,
+    "mean": 51.538,
+    "sd": 12.390669919444695,
+    "n": 20
+   },
+   "status": "abnormal"
+  },
+  {
+   "key": "lv_ef_pct",
+   "label": "LV ejection fraction",
+   "unit": "%",
+   "value": 31.37,
+   "range": {
+    "low": 50.09269718659855,
+    "high": 70.57912281340144,
+    "mean": 60.33590999999999,
+    "sd": 5.121606406700722,
+    "n": 20
+   },
+   "status": "abnormal"
+  },
+  {
+   "key": "rv_edv_ml",
+   "label": "RV end-diastolic volume",
+   "unit": "mL",
+   "value": 116.81,
+   "range": {
+    "low": 78.48150690171123,
+    "high": 227.0544930982888,
+    "mean": 152.768,
+    "sd": 37.143246549144386,
+    "n": 20
+   },
+   "status": "normal"
+  },
+  {
+   "key": "rv_esv_ml",
+   "label": "RV end-systolic volume",
+   "unit": "mL",
+   "value": 58.86,
+   "range": {
+    "low": 28.748709987939755,
+    "high": 109.31829001206026,
+    "mean": 69.0335,
+    "sd": 20.142395006030124,
+    "n": 20
+   },
+   "status": "normal"
+  },
+  {
+   "key": "rv_ef_pct",
+   "label": "RV ejection fraction",
+   "unit": "%",
+   "value": 49.61,
+   "range": {
+    "low": 35.94933167669164,
+    "high": 73.39711832330836,
+    "mean": 54.673225,
+    "sd": 9.361946661654182,
+    "n": 20
+   },
+   "status": "normal"
+  },
+  {
+   "key": "myo_mass_g",
+   "label": "Myocardial mass",
+   "unit": "g",
+   "value": 160.63,
+   "range": {
+    "low": 50.55126097697846,
+    "high": 154.19558902302154,
+    "mean": 102.373425,
+    "sd": 25.911082011510768,
+    "n": 20
+   },
+   "status": "borderline"
+  },
+  {
+   "key": "wall_thickness_mean_mm",
+   "label": "Mean wall thickness",
+   "unit": "mm",
+   "value": 8.79,
+   "range": {
+    "low": 5.213779799824693,
+    "high": 8.953160200175306,
+    "mean": 7.08347,
+    "sd": 0.9348451000876533,
+    "n": 20
+   },
+   "status": "normal"
+  },
+  {
+   "key": "wall_thickness_max_mm",
+   "label": "Max wall thickness",
+   "unit": "mm",
+   "value": 16.03,
+   "range": {
+    "low": 9.086501181695347,
+    "high": 14.761998818304658,
+    "mean": 11.924250000000002,
+    "sd": 1.4188744091523278,
+    "n": 20
+   },
+   "status": "borderline"
+  },
+  {
+   "key": "lv_edvi_ml_m2",
+   "label": "LV EDV per body area",
+   "unit": "mL/m\u00b2",
+   "value": 129.27,
+   "range": {
+    "low": 41.13174234889972,
+    "high": 94.17787765110027,
+    "mean": 67.65481,
+    "sd": 13.26153382555014,
+    "n": 20
+   },
+   "status": "abnormal"
+  },
+  {
+   "key": "lv_esvi_ml_m2",
+   "label": "LV ESV per body area",
+   "unit": "mL/m\u00b2",
+   "value": 88.72,
+   "range": {
+    "low": 13.892965845381774,
+    "high": 39.76250415461823,
+    "mean": 26.827735,
+    "sd": 6.467384577309113,
+    "n": 20
+   },
+   "status": "abnormal"
+  },
+  {
+   "key": "rv_edvi_ml_m2",
+   "label": "RV EDV per body area",
+   "unit": "mL/m\u00b2",
+   "value": 67.68,
+   "range": {
+    "low": 43.65034407706207,
+    "high": 115.08177592293788,
+    "mean": 79.36605999999998,
+    "sd": 17.85785796146895,
+    "n": 20
+   },
+   "status": "normal"
+  },
+  {
+   "key": "rv_esvi_ml_m2",
+   "label": "RV ESV per body area",
+   "unit": "mL/m\u00b2",
+   "value": 34.1,
+   "range": {
+    "low": 16.049697738010046,
+    "high": 55.38372226198995,
+    "mean": 35.71671,
+    "sd": 9.833506130994977,
+    "n": 20
+   },
+   "status": "normal"
+  },
+  {
+   "key": "myo_mass_index_g_m2",
+   "label": "Myocardial mass per body area",
+   "unit": "g/m\u00b2",
+   "value": 93.06,
+   "range": {
+    "low": 28.630968569467278,
+    "high": 77.60207143053273,
+    "mean": 53.11652,
+    "sd": 12.242775715266362,
+    "n": 20
+   },
+   "status": "abnormal"
+  }
+ ],
+ "diagnosis": {
+  "predicted": "MINF",
+  "probabilities": {
+   "NOR": 0.00084513402543962,
+   "MINF": 0.950032651424408,
+   "DCM": 0.042982183396816254,
+   "HCM": 0.004852342884987593,
+   "RV": 0.0012877080589532852
+  }
+ },
+ "why": [
+  {
+   "feature": "lv_ef_pct",
+   "label": "LV ejection fraction",
+   "value": 31.367364316766004,
+   "unit": "%",
+   "shap": 1.6516393423080444,
+   "text": "Low LV ejection fraction pushed toward previous heart attack (MINF)"
+  },
+  {
+   "feature": "lv_edv_ml",
+   "label": "LV end-diastolic volume",
+   "value": 223.13,
+   "unit": "mL",
+   "shap": 0.42227309942245483,
+   "text": "High LV end-diastolic volume pushed toward previous heart attack (MINF)"
+  },
+  {
+   "feature": "lv_esvi_ml_m2",
+   "label": "LV ESV per body area",
+   "value": 88.72402646818547,
+   "unit": "mL/m\u00b2",
+   "shap": 0.40716344118118286,
+   "text": "High LV ESV per body area pushed toward previous heart attack (MINF)"
+  },
+  {
+   "feature": "rv_ef_pct",
+   "label": "RV ejection fraction",
+   "value": 49.610478554918245,
+   "unit": "%",
+   "shap": 0.35765784978866577,
+   "text": "Low RV ejection fraction pushed toward previous heart attack (MINF)"
+  },
+  {
+   "feature": "rv_lv_edv_ratio",
+   "label": "RV/LV volume ratio",
+   "value": 0.5235064760453547,
+   "unit": "",
+   "shap": 0.309732049703598,
+   "text": "Low RV/LV volume ratio pushed toward previous heart attack (MINF)"
+  }
+ ],
+ "uncertainty": {
+  "score": 0.07432615623979665,
+  "per_phase": {
+   "ed": 0.0658336975737026,
+   "es": 0.0828186149058907
+  },
+  "threshold": 0.07773300000000001,
+  "flagged": false
+ },
+ "models": {
+  "measurements_from": "unet_resnet34 (20261122-194712-seed0)",
+  "doubt_from": "10-view TTA of the same model",
+  "unet": "20261122-185431-seed0",
+  "unet_pretrained": "20261122-194712-seed0",
+  "classifier": "xgboost, trained on expert features of 100 training patients",
+  "code_version": "b8fee410a6b5006f85ee9c4142ab21a81de5b4fc"
+ }
+}

@@ -1,0 +1,37 @@
+[
+ {
+  "id": "patient107",
+  "pid": "patient107",
+  "true_group": "NOR",
+  "predicted": "NOR",
+  "flagged": true
+ },
+ {
+  "id": "patient118",
+  "pid": "patient118",
+  "true_group": "MINF",
+  "predicted": "MINF",
+  "flagged": true
+ },
+ {
+  "id": "patient122",
+  "pid": "patient122",
+  "true_group": "DCM",
+  "predicted": "MINF",
+  "flagged": false
+ },
+ {
+  "id": "patient140",
+  "pid": "patient140",
+  "true_group": "RV",
+  "predicted": "RV",
+  "flagged": true
+ },
+ {
+  "id": "patient142",
+  "pid": "patient142",
+  "true_group": "HCM",
+  "predicted": "HCM",
+  "flagged": true
+ }
+]
