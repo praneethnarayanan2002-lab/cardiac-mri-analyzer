@@ -1,0 +1,22 @@
+# U-Net with an ImageNet-pretrained ResNet-34 encoder. Same data, augmentation, loss, schedule and
+# stopping rule as unet_scratch.yaml, so the encoder is the only difference (decisions D18).
+name: unet_resnet34
+model: unet_resnet34
+dropout: 0.0              # not used by this model; smp's U-Net has no dropout
+
+data:
+  root: data/raw/acdc
+  splits: data/splits.json
+  target_spacing_mm: 1.0
+  size: 192
+
+train:
+  batch_size: 16
+  lr: 3.0e-4              # lower than scratch: large updates would wipe out the pretrained features
+  weight_decay: 1.0e-4
+  warmup_epochs: 5
+  max_epochs: 150
+  patience: 20
+  num_workers: 4
+  augment: true
+  seed: 0

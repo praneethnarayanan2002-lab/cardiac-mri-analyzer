@@ -10,6 +10,7 @@ from torch import nn
 from cardiac.config import Config, DataConfig, TrainConfig
 from cardiac.data.preprocess import prepare, restore
 from cardiac.models.unet import build_scratch_unet
+from cardiac.models.unet_pretrained import build_pretrained_unet
 
 CAVITIES = (1, 3)  # RV and LV; the myocardium is a ring and must keep its hole
 
@@ -22,9 +23,12 @@ def pick_device() -> torch.device:
     return torch.device("cpu")
 
 
-def build_model(config: Config) -> nn.Module:
+def build_model(config: Config, imagenet_weights: bool = True) -> nn.Module:
+    """`imagenet_weights=False` skips the ImageNet download when a checkpoint replaces them."""
     if config.model == "unet_scratch":
         return build_scratch_unet(config.dropout)
+    if config.model == "unet_resnet34":
+        return build_pretrained_unet("imagenet" if imagenet_weights else None)
     raise ValueError(f"unknown model {config.model!r}")
 
 
@@ -36,7 +40,7 @@ def load_checkpoint(path: Path, device: torch.device) -> tuple[nn.Module, Config
         data=DataConfig(**raw["data"]),
         train=TrainConfig(**raw["train"]),
     )
-    model = build_model(config).to(device)
+    model = build_model(config, imagenet_weights=False).to(device)
     model.load_state_dict(checkpoint["state_dict"])
     model.eval()
     return model, config

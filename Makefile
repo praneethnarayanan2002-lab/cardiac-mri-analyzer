@@ -20,8 +20,14 @@ data-lite:
 explore:
 	cd notebooks && uv run jupyter nbconvert --to notebook --execute --inplace 01_data_exploration.ipynb
 
+# Both U-Nets, three seeds each (about 2.5 hours on an M4). One run: uv run python -m cardiac.train
+# --config configs/unet_scratch.yaml --seed 0
 train:
-	uv run python -m cardiac.train --config configs/unet_scratch.yaml
+	for cfg in unet_scratch unet_resnet34; do \
+		for seed in 0 1 2; do \
+			uv run python -m cardiac.train --config configs/$$cfg.yaml --seed $$seed || exit 1; \
+		done; \
+	done
 
 # Validation-set evaluation of one run, plus its figures: make eval-val RUN=runs/unet_scratch/<folder>
 eval-val:

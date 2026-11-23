@@ -4,6 +4,7 @@ import torch
 from cardiac.data.augment import training_transforms
 from cardiac.infer import fill_cavity_holes, predict_volume, remove_small_components
 from cardiac.models.unet import build_scratch_unet
+from cardiac.models.unet_pretrained import build_pretrained_unet
 
 
 def test_small_stray_blob_is_removed() -> None:
@@ -55,3 +56,10 @@ def test_augmentation_keeps_image_and_label_aligned() -> None:
         assert set(np.unique(label)) <= {0.0, 3.0}  # nearest-neighbour: no in-between labels
         bright = np.asarray(out["image"])[label == 3]
         assert bright.size == 0 or np.median(bright) > 0.3  # the label still sits on the square
+
+
+def test_pretrained_unet_output_shape() -> None:
+    model = build_pretrained_unet(encoder_weights=None).eval()
+    with torch.no_grad():
+        out = model(torch.zeros(2, 1, 192, 192))
+    assert out.shape == (2, 4, 192, 192)
