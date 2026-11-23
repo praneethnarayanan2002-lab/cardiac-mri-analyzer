@@ -100,6 +100,14 @@ first run (Phase 6).
 
 **Trade-offs.** A fresh clone can't do anything useful until the download step runs.
 
+**Amended in Phase 8.** Two corrections. First, the licence: CC BY-NC-SA 4.0 does allow sharing,
+for non-commercial use, with attribution, under the same licence; what this project avoids is
+redistributing the dataset itself. Second, one exception: the public demo (D40) needs images of its 5
+sample patients, so `frontend/public/demo/` holds windowed PNG slices of those 5 test patients, with
+model outlines, and a `DATA_LICENSE.md` giving the attribution and licence. No NIfTI files, no other
+patients and no model weights are committed. Weights are still not published: uploading them to the
+Hugging Face Hub needs the repository owner's account, so `make train` remains the way to get them.
+
 ---
 
 ## D6. MIT licence for the code
@@ -890,3 +898,29 @@ Icons are inline SVG, so the app makes no third-party requests.
 **One bug this caught.** The first version put an inline `<style>` element inside the home page's SVG
 heart. React 19 treats `<style>` as a hoistable resource, and under StrictMode's simulated unmount the
 page crashed with "destroy is not a function". The animation now lives in `globals.css`.
+
+---
+
+## D40. A static demo on GitHub Pages instead of hosted inference
+
+**Context.** The plan asks for a public link that loads in under 3 seconds and works on a phone. The
+full app needs a Python server with PyTorch and the model weights.
+
+| Option | Cost | Always on? | First load | Can analyse uploads? |
+|---|---|---|---|---|
+| Hugging Face Spaces (Gradio/Docker) | free CPU tier is limited; GPU paid | sleeps when idle | cold start of a minute or more after sleeping | yes |
+| A rented server | monthly cost, maintenance | yes | fast | yes |
+| **Static site on GitHub Pages** | free | yes | fast (plain files) | no |
+
+**Decision.** A static site: the same React app built with `staticSource` (D38), reading files that
+`scripts/export_demo.py` wrote from the 5 sample patients and `results/`. GitHub Actions builds and
+publishes it on every push that changes `frontend/` (`.github/workflows/deploy-demo.yml`). The
+export is 23.5 MB in 1,564 files (most of it the cine frames), under the plan's 60 MB budget.
+
+**Trade-offs.** The demo can't analyse new scans; it says so and points to running the app locally.
+Its files have to be re-exported (`make demo`) and committed whenever the samples or results
+change. The workflow needs no Python, data or weights, which keeps it fast and avoids publishing
+anything beyond the 5 samples (D5).
+
+**One-time setup.** Repository Settings → Pages → Source: "GitHub Actions". Until that switch is on,
+the workflow's deploy step fails; nothing else is affected.

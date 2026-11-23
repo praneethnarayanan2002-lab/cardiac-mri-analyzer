@@ -264,3 +264,31 @@ rewrites the pixels through `colormap.ts`. The viewer then draws the image (smoo
 (nearest-neighbour, at the chosen opacity, cross-fading over 200 ms when the model changes) and the
 doubt map on one canvas, with the current zoom and pan. Every slice of both phases is preloaded in the
 background, so scrolling never waits.
+
+## 6. Deployment view (Phase 8)
+
+```mermaid
+flowchart LR
+    subgraph Local["Local full app (make api + make ui)"]
+        UI1["React app<br/>apiSource"] -->|"/api (Vite proxy)"| API["FastAPI<br/>backend/app"]
+        API --> PKG["src/cardiac<br/>U-Nets, XGBoost, TTA"]
+        API --> W[("runs/ weights<br/>data/cache/samples")]
+    end
+    subgraph Export["make demo (local, once)"]
+        EX["scripts/export_demo.py"] --> FILES[("frontend/public/demo/<br/>5 cases, PNG slices,<br/>cine, PDFs, metrics.json")]
+    end
+    subgraph Pages["GitHub Pages (public)"]
+        GA["GitHub Actions<br/>deploy-demo.yml<br/>npm ci → build:static"] --> SITE["static site<br/>staticSource"]
+    end
+    W --> EX
+    FILES -->|"git push"| GA
+```
+
+| | Local full app | Public static demo |
+|---|---|---|
+| Sample patients, all 4 outlines, cine, doubt map | yes | yes |
+| PDF report | generated on request | pre-built for the 5 samples |
+| Model comparison page | read from `results/` by the API | the same data, exported to `metrics.json` |
+| Upload your own scan | yes | no (says how to run locally) |
+| Needs | Python env, weights, Node | a browser |
+

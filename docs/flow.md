@@ -13,6 +13,7 @@ next to the code. Each section is written in the phase that builds that part of 
 8. [Report generation](#8-report-generation) (Phase 6)
 9. The evaluation run that writes `results/` (Phases 3–5)
 10. [What happens when something goes wrong](#10-what-happens-when-something-goes-wrong) (Phase 6)
+11. [Exporting and publishing the static demo](#11-exporting-and-publishing-the-static-demo) (Phase 8)
 
 ---
 
@@ -667,3 +668,38 @@ Every failure should say what happened in words a user can act on, and nothing s
 
 `tests/test_api.py` covers the upload checks, unknown cases and layers, missing models and the
 metrics endpoint, with small stand-in models so the tests don't need trained weights.
+
+---
+
+## 11. Exporting and publishing the static demo
+
+```mermaid
+sequenceDiagram
+    participant M as make demo
+    participant E as scripts/export_demo.py
+    participant B as backend/app (imported, not run)
+    participant F as frontend/public/demo/
+    participant G as GitHub Actions
+    M->>E: PYTHONPATH=. uv run python …
+    E->>B: CaseStore → each cached sample
+    loop 5 samples
+        E->>B: png_bytes() for every slice × phase × layer, every cine frame
+        E->>B: build_report()
+        E->>F: cases/<id>.json, slices/…, cine/…, reports/<id>.pdf
+    end
+    E->>B: metrics_summary(results/)
+    E->>F: samples.json, metrics.json, DATA_LICENSE.md
+    E-->>M: 1,564 files, 23.5 MB (fails if > 60 MB)
+    M->>M: npm run build:static (base /cardiac-mri-analyzer/, staticSource)
+    Note over F,G: git commit + push
+    G->>G: npm ci → lint → test → build:static → upload → deploy to Pages
+```
+
+The export imports the backend's own functions (PNG encoding, report, metrics), so every PNG in the
+demo is byte-for-byte what the live API would send for the same request, and every JSON file has the
+same content. The static build differs
+from the normal one in two settings only (`frontend/vite.config.ts`): the base path, because GitHub
+Pages serves the site under `/cardiac-mri-analyzer/`, and `VITE_DATA_MODE=static`, which picks
+`staticSource` and hides the upload form. Routing uses the URL hash (`#/case/patient142`), so deep
+links work on a host that only serves files.
+

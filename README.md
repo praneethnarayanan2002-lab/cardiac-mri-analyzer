@@ -9,10 +9,13 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 ## Status
 
-The project is being built in phases (see `docs/`). Phases 0–7 are done: setup, data, three segmenters
+The project is being built in phases (see `docs/`). Phases 0–8 are done: setup, data, three segmenters
 evaluated once on the 50 held-out test patients, the clinical numbers derived from their masks, a
-diagnosis model with explanations, an uncertainty score, the backend API and the web app. The public
-static demo comes next. Every number below comes from a file in `results/`.
+diagnosis model with explanations, an uncertainty score, the backend API, the web app and a static
+public demo. Every number below comes from a file in `results/`.
+
+**Demo:** https://praneethnarayanan2002-lab.github.io/cardiac-mri-analyzer/ (5 precomputed test
+patients; the full app with uploads runs locally, see Quick start).
 
 ## Results so far: segmentation on the test set
 
@@ -130,6 +133,7 @@ make samples  # normal ranges and the 5 precomputed sample patients for the app
 make api      # backend on http://localhost:8000 (interactive API docs at /docs)
 make ui-setup # once: installs the frontend's pinned packages (needs Node 22+)
 make ui       # the app on http://localhost:5173, talking to the backend
+make demo     # export the 5 samples to frontend/public/demo/ and build the static site
 ```
 
 The trained weights are not in git (`docs/decisions.md` D5), so `make api` needs `make train` and
@@ -158,7 +162,9 @@ docs/        architecture, execution flow, design decisions, ML basics for begin
 ## Data and licences
 
 Code is MIT-licensed (see `LICENSE`). The ACDC data is **not** in this repository and is under its own
-licence, CC BY-NC-SA 4.0 (non-commercial).
+licence, CC BY-NC-SA 4.0 (non-commercial). The one exception is the public demo:
+`frontend/public/demo/` holds PNG slices of 5 test patients, shared under the same CC BY-NC-SA 4.0
+licence with attribution (`frontend/public/demo/DATA_LICENSE.md`, `docs/decisions.md` D5).
 
 **Which copy of ACDC.** I use the preprocessed Hugging Face mirror
 [`mathpluscode/ACDC`](https://huggingface.co/datasets/mathpluscode/ACDC), pinned to commit `4a312b6`,
