@@ -536,6 +536,12 @@ Two practical details:
 - **Colour to grey.** ImageNet models expect three colour channels; an MRI slice has one. The library
   adds the three colour filters of the first layer together into one grey filter.
 
+**What we found.** Not much. On the 50 test patients the pretrained U-Net scored mean Dice 0.903 and
+the scratch U-Net 0.902, a gap smaller than the difference between two training runs of the same
+model. With heavy augmentation and enough epochs, 80 patients were enough for the scratch model to catch
+up. The head start shows up in speed instead: after 2 epochs the pretrained model was at 0.767
+validation Dice and the scratch one at 0.695.
+
 **Where it lives in our code.** `build_pretrained_unet()` in `src/cardiac/models/unet_pretrained.py`;
 `configs/unet_resnet34.yaml`.
 
@@ -569,6 +575,11 @@ nobody would have that answer; someone would have to draw boxes by hand on every
 model would have to. So our MedSAM score is the best case. The **jitter experiment** moves each box edge
 randomly by up to 5, 10 and 20 pixels to see how fast the score drops when the boxes are less
 precise, as a hurried human's would be.
+
+**What we found.** Even with perfect boxes, MedSAM scored below both trained U-Nets on the RV (0.877)
+and LV (0.896), and reached only 0.471 on the myocardium. A model trained on 80 patients of exactly
+this kind of image beat a general model trained on 1.5 million images of all kinds. "Foundation" models
+are a strong starting point, not a guarantee.
 
 **Where it lives in our code.** `src/cardiac/models/medsam.py` (loading, boxes, jitter, merging) and
 `src/cardiac/evaluate_medsam.py` (running it on a split and scoring it).

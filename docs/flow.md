@@ -283,3 +283,54 @@ validation patient and phase, both with and without `postprocess()`, and writes 
 `results/val/<name>_seed<k>.csv` plus mean ± std per structure, phase and group to the matching
 `.json`. The headline numbers are post-processed; the raw ones are kept to measure what
 post-processing actually changes.
+
+---
+
+## 9. The evaluation run that writes `results/` (segmentation part, Phase 3)
+
+Clinical, diagnosis and uncertainty results are added to this section in Phases 4–5.
+
+```mermaid
+flowchart TD
+    subgraph Train["make train (6 runs)"]
+        T1["unet_scratch seeds 0, 1, 2"] --> R[("runs/<name>/<time>-seed<k>/best.pt")]
+        T2["unet_resnet34 seeds 0, 1, 2"] --> R
+    end
+    R --> E["python -m cardiac.evaluate<br/>--run ... --split test --confirm-test<br/>(once per run)"]
+    MS["python -m cardiac.evaluate_medsam<br/>--split test --confirm-test<br/>(no training; 4 jitter levels)"]
+    E --> PT[("results/test/<model>_seed<k>.csv/.json<br/>one row per patient × phase<br/>raw and post-processed")]
+    MS --> PM[("results/test/medsam_jitter<m>.csv/.json")]
+    PT --> S["scripts/summarize_segmentation.py"]
+    PM --> S
+    S --> J[("results/segmentation.json<br/>mean ± std over seeds,<br/>by phase, by group,<br/>pretrained vs scratch tests")]
+    S --> F["figures/test_dice_by_model.png<br/>figures/medsam_jitter.png"]
+```
+
+Order of operations, and why:
+
+1. All six U-Net runs were trained and their checkpoints fixed **before** any of them was evaluated on
+   test. Nothing about the models was changed after that.
+2. MedSAM's protocol (padding, merge order, jitter levels, seed) was fixed after a validation run, then
+   run once on test.
+3. `cardiac.evaluate` and `cardiac.evaluate_medsam` refuse `--split test` unless `--confirm-test` is
+   given, so the test set can't be opened by accident.
+4. Every results file records the code version: `train_git_commit` (from the run folder) and
+   `eval_git_commit` (read before anything is written). `repro.git_commit()` flags uncommitted changes
+   to code or config, but ignores `results/` and `figures/`, which are outputs. An earlier version
+   counted those too, so evaluating several runs in a row wrongly flagged the later ones. That was
+   fixed, and the affected runs were re-evaluated, giving byte-identical per-patient numbers.
+5. `summarize_segmentation.py` only reads the per-run CSVs. It can be re-run at any time without
+   touching a model or the test images.
+
+How the numbers in `segmentation.json` are built, for one U-Net:
+
+```
+per run:   mean over 100 rows (50 patients × ED/ES) of post-processed Dice  → one score per seed
+per model: mean and std of the 3 seed scores                               → "0.928 ± 0.002"
+per test:  each patient's Dice averaged over 3 seeds and ED/ES             → 50 numbers per model
+           paired Wilcoxon on the 50 differences (pretrained − scratch)   → p-value
+```
+
+The "±" in the results table is therefore **training noise** (how much the score moves between seeds),
+not patient-to-patient spread, which is much larger (a standard deviation of about 0.04–0.07 Dice,
+depending on the structure) and is in the per-run JSON files.

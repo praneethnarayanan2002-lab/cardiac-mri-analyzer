@@ -9,11 +9,33 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 ## Status
 
-The project is being built in phases (see `docs/`). Phases 0–2 are done: setup, data, and a baseline
-U-Net trained from scratch. So far the model has only been evaluated on the 20 **validation** patients
-(`results/val/`); the 50 test patients stay untouched until all three segmenters are trained (Phase 3), so
-there is no results table yet. Every number that appears here later will come from a real run saved in
-`results/`.
+The project is being built in phases (see `docs/`). Phases 0–3 are done: setup, data, and three
+segmenters evaluated once on the 50 held-out test patients. Clinical measurements, diagnosis, uncertainty
+and the app come next. Every number below comes from `results/segmentation.json`.
+
+## Results so far: segmentation on the test set
+
+50 test patients, end-diastole and end-systole, scored per patient in 3D on the original image grid.
+U-Nets: mean ± std over 3 training seeds. MedSAM is not trained, so it has one run.
+
+| Model | RV Dice | MYO Dice | LV Dice | RV HD95 | MYO HD95 | LV HD95 |
+|---|---|---|---|---|---|---|
+| U-Net, from scratch | 0.900 ± 0.005 | 0.877 ± 0.004 | 0.928 ± 0.002 | 4.59 ± 0.47 mm | 3.11 ± 0.24 mm | 3.67 ± 0.34 mm |
+| U-Net, ResNet-34 ImageNet encoder | 0.900 ± 0.003 | 0.878 ± 0.002 | 0.932 ± 0.004 | 4.19 ± 0.23 mm | 2.85 ± 0.23 mm | 2.98 ± 0.30 mm |
+| MedSAM, zero-shot, **oracle boxes** | 0.877 | 0.471 | 0.896 | 4.31 mm | 8.73 mm | 3.60 mm |
+
+![Test Dice by model](figures/test_dice_by_model.png)
+
+- **Pretraining (RQ2):** no measurable Dice benefit. Paired Wilcoxon tests over the 50 patients give
+  p = 0.44 (RV), 0.27 (MYO), 0.24 (LV). HD95 is somewhat lower with the pretrained encoder, but that
+  comparison was added after seeing the Dice result and does not survive a correction for multiple tests.
+- **MedSAM (RQ3):** even when its box prompts are cut from the expert's own outline, MedSAM is below
+  both U-Nets, and it largely fails on the myocardium: a box around the muscle ring makes it outline the
+  bright cavity inside. Its numbers are a best case (`docs/decisions.md` D19), not a real-world result.
+  Moving the box edges by up to 5 px barely changes them; by up to 20 px, RV and LV Dice drop to 0.681 and
+  0.743 (`figures/medsam_jitter.png`).
+- These Dice scores are on images the mirror cropped around the expert's LV centre, so they are somewhat
+  optimistic compared with full-field scans (`docs/decisions.md` D9).
 
 ## Quick start
 

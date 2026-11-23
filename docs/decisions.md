@@ -417,6 +417,14 @@ norm (that's how ResNet is built). So a difference in results is "ImageNet-pretr
 scratch MONAI U-Net", not "pretraining alone". A cleaner test would also train the same ResNet-34 U-Net
 from random weights. I left it out to keep to the plan's three segmenters, and list it as next work.
 
+**Result (test set, 3 seeds each).** Mean Dice 0.903 ± 0.002 pretrained vs. 0.902 ± 0.003 scratch. Per
+structure the differences are at most 0.004 Dice, inside the seed-to-seed spread, and the paired
+Wilcoxon tests are not significant (p = 0.44 RV, 0.27 MYO, 0.24 LV; pretrained better for 28–30 of 50
+patients). On this dataset, with this much augmentation and training, ImageNet pretraining did not
+measurably improve overlap. HD95 is lower with the pretrained encoder (LV 2.98 vs 3.67 mm), but for the
+LV only 26 of 50 patients improve: the mean moves because a few patients with large boundary errors get
+better, not because typical patients do (see D20 for why that test is labelled exploratory).
+
 The plan said smp *averages* the RGB weights of the first convolution for 1-channel input. Reading the
 library code (`patch_first_conv`) shows it **sums** them. Summing keeps the response to a grey image the
 same as to an RGB photo of equal brightness, which is the more sensible choice anyway.
@@ -447,6 +455,18 @@ the result as it is. Better prompting (a positive point on the muscle and a nega
 cavity, or "epicardium box minus LV mask") might fix it. That would be a different method, so it goes
 under next steps rather than quietly into this comparison.
 
+**On the test set** the myocardium failure is general but uneven. Myocardium Dice with exact boxes is
+0.471 overall, **0.309 at end-diastole and 0.633 at end-systole**, and by group from 0.312 (DCM) to
+0.707 (HCM). The pattern fits the explanation: when the wall is thick compared with the cavity (a
+contracted heart, or hypertrophic cardiomyopathy), the ring is the most obvious object in the box; when
+the cavity dominates (a relaxed or dilated heart), MedSAM outlines the cavity. For RV and LV, exact boxes
+give 0.877 and 0.896 Dice, below both trained U-Nets, which are given no prompt at all.
+
+**Jitter.** Moving each box edge by up to 5 px barely matters (RV 0.877 → 0.869, LV 0.896 → 0.892);
+up to 10 px costs a few points; up to 20 px drops RV to 0.681 and LV to 0.743. A quickly drawn human box
+is probably within 5–10 px, so in that range MedSAM's RV and LV would stay usable, but not better than
+a U-Net trained on 80 patients.
+
 **Trade-offs.** Results here say nothing about MedSAM with automatic prompts, and nothing about MedSAM
 fine-tuned on ACDC; both would likely change the picture.
 
@@ -468,6 +488,17 @@ to. Validation Dice had already been flat for 35 epochs, so the expected gain is
 would also mean retraining seed 0, and both models would be affected the same way, so it doesn't bias
 the comparison. It stays a candidate for future work.
 
+**What the six runs looked like.** Best validation epochs were 50, 80 and 88 (scratch) and 96, 68
+and 34 (pretrained); runs lasted 55–117 epochs. So the stopping point varies a lot from seed to seed,
+which is one more reason not to trust a single run. Test-set mean Dice per seed ranged 0.899–0.904
+(scratch) and 0.901–0.905 (pretrained).
+
 **Statistics.** Seed-level mean ± std shows training noise. To compare scratch and pretrained on the same
 patients, I average each patient's Dice over seeds and over ED/ES (one number per patient, 50 pairs) and
 use a paired Wilcoxon signed-rank test, which doesn't assume the differences are normally distributed.
+
+Dice was the planned comparison. After it came out not significant, I also ran the same test on HD95,
+because the HD95 means looked different. That second test was chosen after seeing data, so
+`results/segmentation.json` marks it `"planned": false` and I treat it as exploratory: RV p = 0.018,
+MYO p = 0.20, LV p = 0.07. With three structures tested, a Bonferroni-corrected threshold is
+0.05 / 3 ≈ 0.017, and none of them pass it.
