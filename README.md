@@ -7,17 +7,26 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 > **Research demo, not a medical device.** Nothing here is validated for clinical use.
 
-## Status
-
-The project is being built in phases (see `docs/`). Phases 0–8 are done: setup, data, three segmenters
-evaluated once on the 50 held-out test patients, the clinical numbers derived from their masks, a
-diagnosis model with explanations, an uncertainty score, the backend API, the web app and a static
-public demo. Every number below comes from a file in `results/`.
-
 **Demo:** https://praneethnarayanan2002-lab.github.io/cardiac-mri-analyzer/ (5 precomputed test
 patients; the full app with uploads runs locally, see Quick start).
 
-## Results so far: segmentation on the test set
+![One test patient, base to apex: pretrained U-Net outline next to the expert's](docs/images/slices.gif)
+
+## What it answers
+
+Every number below comes from a file in `results/`, produced by `make eval` on 50 held-out test
+patients that no model saw during training or tuning.
+
+| # | Question | Short answer |
+|---|---|---|
+| RQ1 | How close does a trained U-Net get to expert outlines? | Mean Dice 0.90, boundary error (HD95) 3–4.6 mm |
+| RQ2 | Does an ImageNet-pretrained encoder help? | No measurable Dice benefit |
+| RQ3 | Is MedSAM good enough with no training? | No, even given the expert's own boxes; it fails on the heart muscle |
+| RQ4 | Are the clinical numbers usable? | LV yes (EF within about ±9 points of the expert); RV much less so |
+| RQ5 | Can the five conditions be diagnosed from the numbers? | 85–91% accuracy; MINF and DCM get confused |
+| RQ6 | Does the model know when it is wrong? | Doubt and error correlate at ρ = 0.71 |
+
+## Results: segmentation on the test set
 
 50 test patients, end-diastole and end-systole, scored per patient in 3D on the original image grid.
 U-Nets: mean ± std over 3 training seeds. MedSAM is not trained, so it has one run.
@@ -41,7 +50,7 @@ U-Nets: mean ± std over 3 training seeds. MedSAM is not trained, so it has one 
 - These Dice scores are on images the mirror cropped around the expert's LV centre, so they are somewhat
   optimistic compared with full-field scans (`docs/decisions.md` D9).
 
-## Results so far: clinical numbers on the test set
+## Results: clinical numbers on the test set
 
 Volumes, ejection fraction (EF), myocardial mass and wall thickness computed from each model's masks,
 compared with the same numbers computed from the expert masks (`docs/decisions.md` D21). Each cell is
@@ -75,7 +84,7 @@ patients. U-Nets: averaged over 3 seeds.
 - Full statistics per measurement (MAE, Pearson r, per seed) are in `results/clinical.json`; all nine
   Bland-Altman plots per model are in `figures/bland_altman_<model>.png`.
 
-## Results so far: diagnosis on the test set
+## Results: diagnosis on the test set
 
 Five groups (normal, previous infarction, dilated, hypertrophic, abnormal RV), 10 test patients each.
 Models are trained on measurements from the **expert** masks of the 100 training patients, then tested
@@ -98,7 +107,7 @@ on measurements from the expert masks and from each segmenter's masks (`results/
 
 ![Global SHAP importance](figures/shap_global.png)
 
-## Results so far: does the model know when it is wrong?
+## Results: does the model know when it is wrong?
 
 Test-time augmentation (10 slightly rotated and mirrored views per slice) gives a doubt map per voxel
 and a doubt score per patient (`results/uncertainty.json`, pretrained U-Net, 3 seeds).
@@ -110,6 +119,19 @@ and a doubt score per patient (`results/uncertainty.json`, pretrained U-Net, 3 s
   seen a heart turned that far and its "doubt" measured the rotation, not the patient (D26).
 
 ![Risk-coverage curve](figures/risk_coverage.png)
+
+## The app
+
+A web app shows any sample or uploaded scan slice by slice, with the four outlines (U-Net, pretrained
+U-Net, MedSAM, expert), the heartbeat, a doubt map, the measurements against normal ranges, the
+suggested group with its reasons, and a one-page PDF report. A comparison page charts every result
+above.
+
+![Workspace](docs/images/app_workspace.png)
+
+| Home | Model comparison |
+|---|---|
+| ![Home](docs/images/app_home.png) | ![Model comparison](docs/images/app_comparison.png) |
 
 ## Quick start
 
@@ -149,15 +171,47 @@ activate it with `source .venv/bin/activate`.
 configs/     training and classifier configs (YAML)
 data/        downloaded data (git-ignored) and splits.json (patient ids only, committed)
 notebooks/   data exploration; saves its figures to figures/
-scripts/     data download, splits, demo export
-src/cardiac/ the research package: data, models, training, metrics, clinical maths, diagnosis
+scripts/     data download, splits, summaries, figures, sample cache, demo export
+src/cardiac/ the research package: data, models, training, evaluation, clinical maths, diagnosis,
+             uncertainty
 backend/     FastAPI app (inference only, never trains)
-frontend/    React + TypeScript app
-tests/       pytest suite
-results/     metrics from real runs (small JSON files, committed)
+frontend/    React + TypeScript app; public/demo/ holds the static demo's exported files
+tests/       pytest suite (the frontend's tests live next to its code)
+results/     metrics from real runs (small JSON and CSV files, committed)
 figures/     figures used by this README and the docs
 docs/        architecture, execution flow, design decisions, ML basics for beginners
 ```
+
+Where to start reading: `docs/ml_basics.md` explains every idea from scratch, `docs/flow.md` follows one
+patient through the code, `docs/architecture.md` is the map, and `docs/decisions.md` says why each
+choice was made (40 decisions).
+
+## Limitations
+
+- **One centre, 150 patients.** ACDC comes from one hospital in Dijon. Nothing here shows the models
+  work on other scanners or populations.
+- **A preprocessed copy of the data.** The Hugging Face mirror is resampled to 10 mm slices and cropped
+  around the expert's LV centre (D9), so segmentation scores are somewhat optimistic and absolute
+  volumes differ from the original scans.
+- **2D model on thick slices.** Each slice is segmented on its own. Most volume errors come from the
+  top slices near the valves, where a whole 10 mm disc is in or out (`docs/flow.md` §5).
+- **MedSAM is shown at its best case.** Its boxes are cut from the expert's answer (D19). It is not a
+  real-world comparison.
+- **Reference values are our own.** Clinical "expert" numbers are our formulas on the expert masks
+  (D21), and "normal ranges" come from 20 normal training patients (D30), not clinical references.
+- **Small test set.** 50 patients, 10 per group: one patient is 2 points of diagnostic accuracy, and the
+  doubt threshold set on 20 validation patients flags 32% of test patients instead of 20% (D31).
+- **Not clinically validated** in any way, and not a medical device.
+
+## Next steps
+
+- 2.5D or 3D context, so the model sees neighbouring slices when deciding the top slice.
+- MedSAM with automatic or point prompts, and MedSAM fine-tuned on ACDC (D19).
+- Training the diagnosis model on cross-validated *predicted* features, so it learns to tolerate
+  segmentation errors (D25).
+- A deep ensemble from the three existing seeds as a second uncertainty estimate (D27).
+- Segment-level wall thickness (16-segment model) instead of one maximum (D22).
+- Repeating the evaluation on the official ACDC download and on another dataset (M&Ms).
 
 ## Data and licences
 
