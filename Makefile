@@ -29,14 +29,23 @@ train:
 		done; \
 	done
 
-# Test-set evaluation of every trained run and of MedSAM, then the summary table and figures.
-# Run once, after all training is finished.
+# Test-set evaluation of every trained run and of MedSAM, then the summary tables and figures.
+# Run once, after all training is finished. Segmentation first, then clinical numbers from the same
+# frozen models; cardiac.measure checks that its masks match the ones evaluate scored.
 eval:
 	for run in runs/unet_scratch/*/ runs/unet_resnet34/*/; do \
 		uv run python -m cardiac.evaluate --run "$$run" --split test --confirm-test || exit 1; \
 	done
 	uv run python -m cardiac.evaluate_medsam --split test --confirm-test
 	uv run python scripts/summarize_segmentation.py --split test
+	uv run python -m cardiac.measure --expert --split train
+	uv run python -m cardiac.measure --expert --split val
+	uv run python -m cardiac.measure --expert --split test --confirm-test
+	for run in runs/unet_scratch/*/ runs/unet_resnet34/*/; do \
+		uv run python -m cardiac.measure --run "$$run" --split test --confirm-test || exit 1; \
+	done
+	uv run python -m cardiac.measure --medsam --split test --confirm-test
+	uv run python scripts/summarize_clinical.py --split test
 
 # Validation-set evaluation of one run, plus its figures: make eval-val RUN=runs/unet_scratch/<folder>
 eval-val:
