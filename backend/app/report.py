@@ -44,6 +44,11 @@ def overlay_png(image: np.ndarray, label: np.ndarray, alpha: float = 0.45) -> io
     return buffer
 
 
+def format_value(value: float, unit: str) -> str:
+    """ "56.3 %", "2.9" (no unit, no trailing space)."""
+    return f"{value:.1f} {unit}".rstrip()
+
+
 def middle_slice(label: np.ndarray) -> int:
     lv = (label == 3).sum(axis=(0, 1))
     return int(np.argmax(lv)) if lv.any() else label.shape[2] // 2
@@ -63,7 +68,7 @@ def build_report(case: Case) -> bytes:
         pagesize=A4,
         leftMargin=16 * mm,
         rightMargin=16 * mm,
-        topMargin=14 * mm,
+        topMargin=12 * mm,
         bottomMargin=12 * mm,
     )
     who = s.get("pid") or f"upload {s['id']}"
@@ -75,7 +80,7 @@ def build_report(case: Case) -> bytes:
             "not validated for clinical use.",
             small,
         ),
-        Spacer(1, 4 * mm),
+        Spacer(1, 2 * mm),
     ]
 
     pics = []
@@ -84,7 +89,7 @@ def build_report(case: Case) -> bytes:
         k = middle_slice(label)
         pics.append(
             [
-                RLImage(overlay_png(case.images[phase][:, :, k], label[:, :, k]), 62 * mm, 62 * mm),
+                RLImage(overlay_png(case.images[phase][:, :, k], label[:, :, k]), 52 * mm, 52 * mm),
                 Paragraph(f"{name}, slice {k + 1} of {label.shape[2]}", small),
             ]
         )
@@ -92,13 +97,13 @@ def build_report(case: Case) -> bytes:
         Table([[pics[0][0], pics[1][0]], [pics[0][1], pics[1][1]]], colWidths=[90 * mm, 90 * mm])
     )
     story.append(Paragraph("Red: LV cavity. Green: myocardium. Blue: RV cavity.", small))
-    story.append(Spacer(1, 3 * mm))
+    story.append(Spacer(1, 1 * mm))
 
     story.append(Paragraph("Measurements", h2))
     rows = [["", "value", "normal range*", ""]]
     status_styles = []
     for i, m in enumerate(s["measurements"], start=1):
-        value = "-" if m["value"] is None else f"{m['value']:.1f} {m['unit']}"
+        value = "-" if m["value"] is None else format_value(m["value"], m["unit"])
         rng = m["range"]
         rng_text = "-" if rng is None else f"{rng['low']:.1f} to {rng['high']:.1f}"
         rows.append([m["label"], value, rng_text, m["status"]])
@@ -107,11 +112,11 @@ def build_report(case: Case) -> bytes:
     table.setStyle(
         TableStyle(
             [
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
                 ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
                 ("LINEBELOW", (0, 0), (-1, -1), 0.3, BORDER),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
                 *status_styles,
             ]
         )
@@ -135,7 +140,7 @@ def build_report(case: Case) -> bytes:
     ]
     for reason in s["why"]:
         story.append(
-            Paragraph(f"• {reason['text']} ({reason['value']:.1f} {reason['unit']})", body)
+            Paragraph(f"• {reason['text']} ({format_value(reason['value'], reason['unit'])})", body)
         )
 
     unc = s["uncertainty"]
