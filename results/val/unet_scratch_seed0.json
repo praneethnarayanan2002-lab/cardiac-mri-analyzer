@@ -1,7 +1,7 @@
 {
   "run": "runs/unet_scratch/20261122-185431-seed0",
   "train_git_commit": "db770e16a45412ec6c7f551b101f2979c32d0b6b",
-  "eval_git_commit": "6982c56a1d13c6422140d42ea7b88179336e796c (uncommitted changes)",
+  "eval_git_commit": "00faa721a8f418d4b3485119017f3e9c2ef37d27",
   "split": "val",
   "n_patients": 20,
   "best_epoch": 50,
