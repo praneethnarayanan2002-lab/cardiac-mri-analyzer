@@ -1,7 +1,7 @@
 # Every Python command goes through `uv run`, which uses the project's .venv/ and never a global Python.
-# Targets for later phases (demo) are added in the phase that builds them.
+# Each target has a comment above it saying what it does and what it needs.
 
-.PHONY: setup data data-lite explore train eval eval-val samples api ui ui-setup test lint format \
+.PHONY: setup data data-lite explore train eval eval-val samples api ui ui-setup demo test lint format \
 	typecheck notebook clean
 
 setup:
@@ -79,6 +79,12 @@ ui-setup:
 
 ui:
 	cd frontend && npm run dev
+
+# The public static demo: export the samples and metrics to frontend/public/demo/, then build the
+# static site into frontend/dist/ (what the GitHub Pages workflow deploys). Needs `make samples`.
+demo:
+	PYTHONPATH=. uv run python scripts/export_demo.py
+	cd frontend && npm run build:static
 
 test:
 	uv run pytest
