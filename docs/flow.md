@@ -8,7 +8,7 @@ next to the code. Each section is written in the phase that builds that part of 
 3. A full training run with early stopping (Phase 2)
 4. Inference on one patient (Phase 2)
 5. [Clinical calculation, worked example](#5-clinical-calculation-worked-example) (Phase 4)
-6. Diagnosis and SHAP for the same patient (Phase 5)
+6. [Diagnosis and SHAP for the same patient](#6-diagnosis-and-shap-for-the-same-patient) (Phase 5)
 7. An upload in the app (Phase 6)
 8. Report generation (Phase 6)
 9. The evaluation run that writes `results/` (Phases 3–5)
@@ -392,10 +392,80 @@ summary in `results/clinical.json` is mean ± std over the 3 seeds; the plots
 
 ---
 
+## 6. Diagnosis and SHAP for the same patient
+
+`scripts/run_diagnosis.py` trains the diagnosis models once, on the expert features of the 100
+training patients, then predicts every test patient from each set of features. The app uses the saved
+XGBoost model (`runs/classifier/xgboost.json`) the same way.
+
+```mermaid
+flowchart TD
+    TR[("results/train + val/<br/>clinical_expert.csv<br/>100 patients")] --> FM["feature_matrix()<br/>add_derived(): RV/LV ratio,<br/>mass/volume ratio → 18 features"]
+    FM --> CV["GridSearchCV, stratified 5-fold<br/>configs/classifier.yaml"]
+    CV --> XG["XGBoost<br/>depth 3, 300 trees, lr 0.1"]
+    CV --> LR["logistic regression<br/>C = 100"]
+    RB["rule_based()<br/>ACDC definitions, untuned"]
+    TE[("results/test/clinical_&lt;source&gt;.csv<br/>expert, 3 + 3 U-Net seeds, MedSAM")] --> F2["feature_matrix()"]
+    F2 --> XG & LR & RB
+    XG --> P["probabilities for NOR, MINF, DCM, HCM, RV"]
+    XG --> SH["shap.TreeExplainer<br/>one value per feature per group"]
+    P & SH --> OUT[("results/diagnosis.json<br/>results/test/diagnosis_predictions.csv")]
+```
+
+### Patient129, continued
+
+Patient129's true group is "abnormal RV". Here are its features from the expert masks and from the
+pretrained U-Net (seed 0), with what the model made of them. The SHAP column is the push towards
+"RV", in log-odds; the values for all five groups add up exactly to the model's raw scores.
+
+| | from expert masks | from U-Net masks |
+|---|---|---|
+| RV/LV volume ratio (EDV) | 1.42 | 1.19 |
+| ... its SHAP push towards RV | **+2.64** | **−0.77** |
+| RV EF | 36.7 % | 43.8 % |
+| RV ESV per body area | 80.9 mL/m² | 59.1 mL/m² |
+| P(RV) | **0.993** | **0.455** |
+| P(NOR) | 0.002 | 0.377 |
+| predicted group | RV | RV, barely |
+
+With the expert's masks, the one feature that settles it is the RV being 1.42 times the size of the LV:
+it alone adds +2.64 to the RV score. With the U-Net's masks, the missed basal RV slice from §5 shrinks
+the RV, the ratio drops to 1.19, and the same feature now pushes *away* from RV (−0.77) and towards
+normal. The model still says RV, but only 46% against 38% for normal. The other seeds' features give
+RV again (seed 1), HCM (seed 2); the scratch U-Net's give HCM, NOR and NOR
+(`results/test/diagnosis_predictions.csv`).
+
+This is the whole pipeline in one patient: one hard slice near the valve, a 44 mL error in RV volume,
+a ratio that crosses the model's threshold, and a diagnosis that becomes a coin toss. It is also why
+the app shows the reasons next to the answer: "RV/LV volume ratio pushed away from abnormal RV" points
+straight at the measurement to check.
+
+### Over all 50 test patients
+
+| features from | rules | logistic regression | XGBoost |
+|---|---|---|---|
+| expert masks | 0.70 | 0.88 | 0.86 |
+| scratch U-Net (3 seeds) | 0.67 ± 0.03 | 0.85 ± 0.02 | 0.85 ± 0.01 |
+| pretrained U-Net (3 seeds) | 0.65 ± 0.01 | 0.91 ± 0.02 | 0.88 ± 0.02 |
+| MedSAM, oracle boxes | 0.74 | 0.64 | 0.80 |
+
+Accuracy, from `results/diagnosis.json`. Each patient is 0.02, so differences of one or two patients
+are noise. Accuracy hides individual changes, so the same file also records how often a patient gets
+the **same** XGBoost diagnosis from predicted features as from expert features: 95% for either U-Net
+(mean over seeds), 82% for MedSAM. Patient129 is one of the U-Net cases that stayed the same, but only
+just. Most mistakes are MINF and DCM swapped for each other (`figures/diagnosis_confusion.png`):
+both are weak, dilated left ventricles, and what tells them apart in the ACDC definitions is abnormal
+wall motion in segments, which none of our features measure.
+
+![Confusion matrices](../figures/diagnosis_confusion.png)
+
+![Global SHAP importance](../figures/shap_global.png)
+
+---
+
 ## 9. The evaluation run that writes `results/`
 
-Segmentation (Phase 3) and clinical numbers (Phase 4) so far; diagnosis and uncertainty are added in
-Phase 5.
+Segmentation (Phase 3), clinical numbers (Phase 4), then uncertainty and diagnosis (Phase 5).
 
 ### 9a. Segmentation
 
@@ -469,3 +539,31 @@ The order matters in the same way as for segmentation:
    rounding of the 4-decimal CSV. So the numbers were measured on exactly the masks Phase 3 scored.
 3. Expert measurements for the training and validation patients (`results/train/`, `results/val/`)
    are written too: they are the training data for the diagnosis models in Phase 5.
+
+### 9c. Uncertainty and diagnosis (Phase 5)
+
+```mermaid
+flowchart TD
+    R[("3 pretrained U-Net checkpoints")] --> EU["cardiac.evaluate_uncertainty<br/>--split val, then --split test<br/>10 TTA views per slice"]
+    EU --> UC[("results/&lt;split&gt;/uncertainty_unet_resnet34_seed&lt;k&gt;.csv<br/>doubt score + Dice per patient and phase")]
+    UC --> SU["scripts/summarize_uncertainty.py"]
+    SU --> UJ[("results/uncertainty.json<br/>Spearman, risk–coverage, AURC")]
+    SU --> RC["figures/risk_coverage.png"]
+    UC --> PD["scripts/plot_doubt_maps.py"] --> DM["figures/doubt_maps.png"]
+    CE[("clinical_*.csv from 9b")] --> RD["scripts/run_diagnosis.py<br/>CV on 100 training patients,<br/>then every test feature set"]
+    RD --> DJ[("results/diagnosis.json<br/>results/test/diagnosis_predictions.csv<br/>results/test/diagnosis_shap.csv")]
+    RD --> FG["figures/diagnosis_confusion.png<br/>figures/shap_global.png"]
+    RD --> MOD[("runs/classifier/xgboost.json<br/>(for the app, not in git)")]
+```
+
+- The TTA views were chosen on validation patients after the plan's 90° rotations failed there
+  (`decisions.md` D26); the test run used the final views unchanged.
+- The classifier's settings come from cross-validation on the 100 training patients. One grid edge
+  was hit twice; the grid was widened once before the test run and not after (D24).
+- Two statistics were added after the first test run, as reporting only, without changing any model:
+  how often the diagnosis from predicted features equals the one from expert features
+  (`agreement_with_expert_features`), and the doubt–error correlation with heart size taken out
+  (`spearman_rho_size_adjusted`, marked exploratory).
+- `run_diagnosis.py` checks that, for every saved patient, the SHAP values plus the base value add up
+  to the model's raw score. shap only updates its base value after computing SHAP values on the same
+  explainer, which an earlier version of the script got wrong.

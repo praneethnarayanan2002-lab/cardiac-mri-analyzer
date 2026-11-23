@@ -9,10 +9,10 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 ## Status
 
-The project is being built in phases (see `docs/`). Phases 0–4 are done: setup, data, three segmenters
-evaluated once on the 50 held-out test patients, and the clinical numbers derived from their masks.
-Diagnosis, uncertainty and the app come next. Every number below comes from `results/segmentation.json`
-or `results/clinical.json`.
+The project is being built in phases (see `docs/`). Phases 0–5 are done: setup, data, three segmenters
+evaluated once on the 50 held-out test patients, the clinical numbers derived from their masks, a
+diagnosis model with explanations, and an uncertainty score. The app comes next. Every number below
+comes from a file in `results/`.
 
 ## Results so far: segmentation on the test set
 
@@ -71,6 +71,42 @@ patients. U-Nets: averaged over 3 seeds.
   it under-segments the LV by a similar fraction at ED and ES, so that cancels in the ratio.
 - Full statistics per measurement (MAE, Pearson r, per seed) are in `results/clinical.json`; all nine
   Bland-Altman plots per model are in `figures/bland_altman_<model>.png`.
+
+## Results so far: diagnosis on the test set
+
+Five groups (normal, previous infarction, dilated, hypertrophic, abnormal RV), 10 test patients each.
+Models are trained on measurements from the **expert** masks of the 100 training patients, then tested
+on measurements from the expert masks and from each segmenter's masks (`results/diagnosis.json`).
+
+| Measurements from | ACDC rules (untuned) | Logistic regression | XGBoost |
+|---|---|---|---|
+| expert masks | 0.70 | 0.88 | 0.86 |
+| U-Net, scratch (3 seeds) | 0.67 ± 0.03 | 0.85 ± 0.02 | 0.85 ± 0.01 |
+| U-Net, ResNet-34 (3 seeds) | 0.65 ± 0.01 | 0.91 ± 0.02 | 0.88 ± 0.02 |
+| MedSAM, oracle boxes | 0.74 | 0.64 | 0.80 |
+
+- **RQ5:** the five groups can be told apart from 18 measurements with 85–91% accuracy (learned models). Most
+  errors swap MINF and DCM, which differ in wall motion, something none of the measurements capture.
+- Swapping expert masks for U-Net masks barely changes accuracy over 50 patients (1 patient = 2
+  points), and 95% of patients get the same diagnosis either way. Individual diagnoses do move:
+  `docs/flow.md` §6 follows one patient whose missed RV slice turns a 99% "abnormal RV" into 46%.
+- Logistic regression is as good as XGBoost here, except on MedSAM's measurements, whose badly wrong
+  myocardial mass a linear model extrapolates and a tree does not (`docs/decisions.md` D24).
+
+![Global SHAP importance](figures/shap_global.png)
+
+## Results so far: does the model know when it is wrong?
+
+Test-time augmentation (10 slightly rotated and mirrored views per slice) gives a doubt map per voxel
+and a doubt score per patient (`results/uncertainty.json`, pretrained U-Net, 3 seeds).
+
+- **RQ6:** the doubt score and the actual error (1 − Dice) have a Spearman correlation of
+  0.71 ± 0.01. Setting aside the 20% most doubtful patients for a human raises mean Dice on the rest
+  from 0.907 to 0.916; a perfect ordering would reach 0.920.
+- The plan's views (90° rotations) were tried on validation first and dropped: the model had never
+  seen a heart turned that far and its "doubt" measured the rotation, not the patient (D26).
+
+![Risk-coverage curve](figures/risk_coverage.png)
 
 ## Quick start
 
