@@ -697,3 +697,193 @@ being measured, so you can also see whether the error grows for bigger hearts.
 **Where it lives in our code.** `src/cardiac/clinical.py` (every formula above, plus `bland_altman()`),
 `src/cardiac/measure.py` (runs it on expert and predicted masks for a whole split) and
 `scripts/summarize_clinical.py` (agreement statistics and plots).
+
+---
+
+## 15. Decision trees and gradient boosting
+
+**What it is.** A **decision tree** is a flowchart of yes/no questions about the input numbers that ends
+in an answer. A tree for our problem could start like this:
+
+```mermaid
+flowchart TD
+    A{"LV EF < 40 %?"} -->|yes| B{"LV EDV index > 100 mL/m²?"}
+    A -->|no| C{"RV EDV index > 110 mL/m²?"}
+    B -->|yes| DCM["DCM"]
+    B -->|no| MINF["MINF"]
+    C -->|yes| RV["RV"]
+    C -->|no| D{"max wall thickness > 15 mm?"}
+    D -->|yes| HCM["HCM"]
+    D -->|no| NOR["NOR"]
+```
+
+That tree is close to the **rule baseline** in `classify.rule_based()`, written by hand from the ACDC
+group definitions. A learned tree chooses its own questions and thresholds: at every step it picks the
+question that best separates the training patients' groups.
+
+One tree is easy to read but crude: a threshold is a hard cliff, and a deep tree memorises its
+training patients. **Gradient boosting** fixes this by adding up many *small* trees, each trained to
+correct the mistakes of the ones before it.
+
+```
+prediction = tree 1 + tree 2 + tree 3 + ... + tree N       (each scaled by the learning rate)
+              │        │
+              │        └─ trained on what trees 1 says wrong
+              └─ a rough first guess
+```
+
+Think of a group of students marking an exam: the first gives a rough grade, the second only looks at
+where the first was off and nudges the grade, the third nudges what's left, and so on. No single
+student is very good; the sum is.
+
+**XGBoost** is a fast, careful implementation of gradient boosting. For five classes it builds one
+small tree per class per round, adds up each class's trees into a score, and turns the five scores into
+probabilities with softmax (the same function the U-Net uses per pixel).
+
+**Why we need it here.** We have 100 training patients and 18 numbers each. That is far too little for a
+neural network, and the right tool for tabular data this small is a shallow tree ensemble or a linear
+model. We compare three: the hand-written rules (no learning), **logistic regression** (a linear model:
+one weighted sum of the features per class), and XGBoost with trees only 3–4 questions deep.
+
+**Choosing settings without touching the test set: cross-validation.** The 100 training patients are
+cut into 5 groups (folds), each with the same mix of the five diagnoses. Each setting is trained on 4
+folds and scored on the 5th, five times over, and the setting with the best average wins. The test
+patients play no part.
+
+```
+fold:      1     2     3     4     5
+round 1: [test][train][train][train][train]
+round 2: [train][test][train][train][train]
+  ...
+round 5: [train][train][train][train][test]     → average of the 5 scores
+```
+
+**Where it lives in our code.** `src/cardiac/classify.py` (features, rules, both models),
+`configs/classifier.yaml` (the settings tried) and `scripts/run_diagnosis.py` (training, testing,
+SHAP).
+
+---
+
+## 16. SHAP values
+
+**What it is.** A SHAP value answers: *for this patient, how much did each measurement push the
+prediction towards (or away from) each diagnosis?* It comes from game theory: treat the features as
+players who share a prize (the model's output minus its average output) and give each player its fair
+share, averaged over every order in which the players could have joined.
+
+Test patient129 (abnormal RV), features from the expert masks, the model's score for "RV":
+
+```
+model's score for "RV", this patient          =  +3.90
+base score for "RV" (average over training)    =  +0.01
+difference to explain                          =  +3.89
+
+   RV/LV volume ratio (1.42, high)   ██████████████  +2.64
+   mean wall thickness (5.7 mm)      █▌              +0.27
+   RV ESV per body area (80.9)       █▍              +0.26
+   myocardial mass (93.1 g)          █▏              +0.22
+   RV EF (36.7 %, low)               ▊               +0.15
+   the other 13 features             █▊              +0.35
+                                                    ─────
+                                                     +3.89     the shares add up exactly
+```
+
+(Values from `results/test/diagnosis_shap.csv`. `flow.md` §6 follows this patient through, including what changes when the features come from the
+U-Net's masks instead.)
+
+Two properties make SHAP useful:
+
+- **The shares add up** to the difference between this prediction and the average one, so nothing is
+  left unexplained.
+- **The same feature can push in different directions for different patients**: a high wall
+  thickness pushes towards HCM, a low one away from it.
+
+For tree models, `shap.TreeExplainer` computes the exact values quickly, using the tree structure
+instead of trying every order. Units are those of the model's raw score (log-odds), not probabilities.
+
+**Two views.** Per patient, the bars above (the UI's "Why" card). Over all training patients, the
+average size of each feature's SHAP value: which measurements the model leans on most
+(`figures/shap_global.png`).
+
+**What SHAP does not tell you.** It explains the *model*, not the disease. If the model leans on height,
+that is a fact about our 100 patients and this model, not evidence that height causes cardiomyopathy.
+
+**Where it lives in our code.** `shap_values()` in `scripts/run_diagnosis.py`.
+
+---
+
+## 17. Uncertainty
+
+**What it is.** A model always gives an answer, even when it shouldn't. **Uncertainty** estimation
+tries to give, next to the answer, a number saying how much to trust it. A useful uncertainty is high
+exactly when the answer is wrong.
+
+A softmax probability is not that number on its own. A network can be 99% sure and wrong, because
+nothing in training punished it for being confidently wrong on images unlike its training data.
+
+**Test-time augmentation (TTA).** Show the model the same slice several times with small, harmless
+changes (a few degrees of rotation, a mirror image), turn each answer back, and compare. Where the
+answers agree, the model is stable; where they disagree, small changes flip its decision, and that is a
+sign it is guessing.
+
+```mermaid
+flowchart LR
+    S["slice"] --> V1["rotate −10°"] & V2["as is"] & V3["mirror"] & V4["... 10 views"]
+    V1 & V2 & V3 & V4 --> M["U-Net"]
+    M --> B["turn each answer back"]
+    B --> A["average probabilities"]
+    A --> L["label = most likely class"]
+    A --> E["entropy per pixel = doubt map"]
+    E --> P["mean doubt inside the heart<br/>= patient doubt score"]
+```
+
+**Entropy** measures how spread out a probability distribution is. Over four classes, a pixel that is
+100% "myocardium" has entropy 0; one that is 25/25/25/25 has the maximum. We divide by the maximum
+so the doubt runs from 0 to 1.
+
+```
+p = (0.00, 0.00, 1.00, 0.00)   → doubt 0.00   certain
+p = (0.00, 0.10, 0.90, 0.00)   → doubt 0.23
+p = (0.00, 0.50, 0.50, 0.00)   → doubt 0.50   a coin toss between two classes
+p = (0.25, 0.25, 0.25, 0.25)   → doubt 1.00   no idea
+```
+
+The changes have to be ones the model knows. Our first try used the plan's 90° and 180° rotations, and
+the model, which had only seen rotations up to 15°, gave nonsense on them: the RV ended up on the wrong
+side of the heart. Its "doubt" then measured how strange the rotated image was, not how hard the real
+one was (`decisions.md` D26).
+
+**Does the doubt score know when the model is wrong?** Two checks, both in
+`results/uncertainty.json`:
+
+- **Spearman correlation** between each patient's doubt score and their error (1 − Dice). It uses
+  ranks only, so it asks: are the most doubtful patients also the worst-segmented ones?
+- **Risk–coverage curve.** Sort patients from least to most doubtful. Keep the first 50%, 60%, ...,
+  100% (the *coverage*) and compute the mean error of the kept ones (the *risk*). If the doubt is
+  useful, the curve rises from left to right: the patients the model keeps are the easy ones, and the
+  ones it hands to a human are the hard ones. A random ordering gives a flat line; a perfect one gives
+  the lowest possible curve.
+
+**What we found** (test set, pretrained U-Net, mean ± std over 3 seeds, `results/uncertainty.json`):
+the doubt score and the error have a Spearman correlation of 0.71 ± 0.01. Keeping the 80% least
+doubtful patients raises their mean Dice from 0.907 to 0.916; a perfect ordering would reach 0.920.
+So the score does most of what a perfect one could. A check added after seeing these numbers (so
+exploratory) asked whether heart size explains it, since small hearts have more border per voxel;
+with size taken out the correlation is still 0.70 ± 0.02. The 10 views also raise mean Dice a
+little, from 0.903 (one view) to 0.907.
+
+![Risk-coverage curve](../figures/risk_coverage.png)
+
+![Doubt maps](../figures/doubt_maps.png)
+
+The doubt sits on the borders between structures, where a pixel could plausibly belong to either
+side. In this figure the "most doubtful" patient is still well segmented: a high score means "check
+this one", not "this one is wrong".
+
+**Other ways to estimate uncertainty** (not used here; `decisions.md` D27): **MC dropout** keeps
+dropout switched on at test time and runs the model several times; **deep ensembles** train several
+models and compare them. Ensembles are usually the strongest, but cost several training runs per model.
+
+**Where it lives in our code.** `src/cardiac/uncertainty.py` (views, entropy, scores,
+risk–coverage), `src/cardiac/evaluate_uncertainty.py` (runs it on a split) and
+`scripts/summarize_uncertainty.py` (correlation and curve).

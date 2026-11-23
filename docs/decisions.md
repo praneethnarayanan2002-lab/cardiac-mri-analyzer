@@ -595,3 +595,141 @@ like in Phase 3; the plots show exact boxes (jitter 0), its best case.
 **How I'd revisit it.** Save the predicted masks once, at evaluation time, so later phases read them
 instead of recomputing. I didn't, because Phase 3 was already finished and frozen; the Dice check makes
 recomputing safe.
+
+---
+
+## D24. XGBoost and logistic regression for 100 patients, not a random forest or a neural network
+
+**Context.** The diagnosis model sees 18 numbers per patient and has 100 training patients, 20 per
+group.
+
+**Options considered.**
+
+| Model | For | Against |
+|---|---|---|
+| Neural network | flexible | far too little data; nothing to gain on 18 hand-made features |
+| Random forest | robust, few settings | usually a little behind boosting on tabular data; SHAP works too |
+| **XGBoost, depth 3–4** | strong on small tabular data; handles missing values; exact SHAP | more settings to tune; can overfit 100 patients |
+| **Logistic regression** | simplest model that can learn; weights readable | one straight boundary per class |
+
+**Decision.** XGBoost is the main model (the plan's choice), with logistic regression and the rule set
+(D25) as baselines. Both learned models are tuned by stratified 5-fold cross-validation on the 100
+training patients over the small grids in `configs/classifier.yaml`; the test patients are not used.
+
+**What happened.** Cross-validation chose depth 3, 300 trees, learning rate 0.1 for XGBoost (CV
+accuracy 0.91) and C = 100 for logistic regression (0.97). C first landed on the largest value of the
+original grid (10), so I added 100 before touching the test set. It landed on the edge again. By then
+the test set had been opened, so I left the grid as it was rather than tune after seeing test results.
+
+On the 50 test patients with expert features, logistic regression scored 0.88 and XGBoost 0.86, one
+patient apart. With features from the pretrained U-Net, 0.91 ± 0.02 and 0.88 ± 0.02. So on this data
+the simple linear model is as good as boosting. That is a common result for small, clean tabular
+data, where the classes are separated by a few thresholds that a weighted sum can also draw.
+
+The exception is MedSAM's features, where XGBoost (0.80) holds up far better than logistic regression
+(0.64). MedSAM's myocardial mass is about 85 g too low, far outside anything seen in training. A
+linear model multiplies that by its weight and extrapolates without limit; a tree only asks "is it
+below this threshold?" and gives the same answer for any value past it.
+
+**Trade-offs.** XGBoost stays the model the app explains with SHAP, because it is robust to
+out-of-range inputs, which is exactly what an uploaded scan can produce.
+
+**How I'd revisit it.** With more patients, nested cross-validation (tuning inside each fold) would
+give an honest estimate of the tuned model's accuracy without a separate test set.
+
+---
+
+## D25. Train on expert features; a hand-written rule set as a baseline
+
+**Context.** RQ5 asks whether the five conditions can be diagnosed from derived measurements. The
+classifier could be trained on numbers from the expert masks or from a segmenter's masks.
+
+**Decision.** Train on features from the **expert** masks of the 100 training patients. Test on the
+50 test patients twice: with expert features, and with features from each segmenter's predicted masks.
+
+**Why.** Training on expert features gives a model of "what the measurements say about the disease",
+independent of any one segmenter. Testing on predicted features then measures how much segmentation
+error costs at diagnosis time, which is how the app uses it: an uploaded scan only has predicted
+masks.
+
+**The rule set.** `classify.rule_based()` writes the ACDC group definitions as if-then rules with
+their published thresholds, untuned: low LV EF with a dilated LV → DCM, low LV EF otherwise → MINF,
+large or weak RV → RV, heavy and thick LV → HCM, else NOR. It scores 0.70 on the test set with expert
+features. It fails mostly on HCM (F1 0.18): the definition needs a mass index above 110 g/m², and by
+our measurement most HCM patients are below it (median 93.9 g/m² on the training patients). That is
+a difference in how mass is measured (these masks, the mirror's 10 mm slices), not a
+wrong definition, and it is a good argument for learning thresholds from data measured the same way
+as the test data.
+
+**Trade-offs.** A model trained on expert features has never seen segmentation errors, so it is not
+taught to be wary of, say, a missed basal slice. Training on predicted features of the training
+patients would need cross-validated predictions (a segmenter's predictions on its own training
+patients are too good), which is more work than this project's scope.
+
+---
+
+## D26. TTA views: small rotations and the training flip, not 90° rotations
+
+**Context.** The plan specified 8 test-time views: rotations by 0, 90, 180 and 270 degrees, each with
+and without a flip, chosen because they can be undone exactly.
+
+**What happened.** On validation patients, single views rotated by 180° scored 0.51–0.61 mean Dice
+instead of about 0.90, and 90° or 270° failed for some patients. The flipped view without rotation
+scored like the original. The U-Net was trained with rotations of at most 15° and a flip along one
+axis (D17); a 180° rotation puts the RV on the opposite side of the LV from where it was in every
+training image, and the model labels it as something else. Averaging those views lowered Dice from
+0.92 to 0.67 on one validation patient, and the "doubt" they produced measured how unusual the
+rotation was, not how hard the patient was.
+
+**Decision.** Use views the model has seen the like of: rotations by −10°, −5°, 0°, +5° and +10°,
+each with and without the training flip: 10 views. The flip and the 0° view are undone exactly;
+the rotations are undone with linear interpolation, which is close to exact away from the corners
+(checked in `tests/test_uncertainty.py`).
+
+**Trade-offs.** The views are less different from each other than 90° turns, so the doubt they
+measure is smaller in absolute terms; what matters is whether it ranks patients correctly (RQ6).
+Interpolation smooths the probability maps very slightly.
+
+**What it gave.** On the test set (3 seeds): Spearman correlation between doubt and error
+0.71 ± 0.01, area under the risk–coverage curve 0.077 against 0.093 for a random order and 0.072 for a
+perfect one, and mean Dice 0.907 with TTA against 0.903 from one view. The settings were fixed on
+validation (correlation 0.70 ± 0.08) before the test run.
+
+---
+
+## D27. TTA instead of MC dropout or a deep ensemble
+
+**Context.** RQ6 needs a per-patient uncertainty score.
+
+| Method | How | Cost | Why not here |
+|---|---|---|---|
+| **TTA** | same model, several transformed inputs | ×10 inference, no retraining | (chosen) |
+| MC dropout | keep dropout on at test time, run several times | ×N inference | the pretrained U-Net was trained without dropout (`configs/unet_resnet34.yaml`) |
+| Deep ensemble | train several models, compare their answers | ×N training and inference | usually the best estimate; we have 3 seeds, which is a small ensemble, but the app would have to run 3 models |
+
+**Decision.** TTA on the pretrained U-Net, as the plan says. It needs no retraining and works on any
+model.
+
+**How I'd revisit it.** The three seeds of each U-Net already exist, so a 3-model ensemble is a cheap
+comparison to add.
+
+---
+
+## D28. torch and xgboost in one process: start OpenMP single-threaded
+
+**Context.** On macOS, the torch wheel ships its own OpenMP library (`libomp`) and xgboost links the
+Homebrew one (D4). When the test suite loaded both, a torch convolution crashed with a segmentation
+fault. Small experiments showed it crashes in either import order and even with xgboost on one thread,
+but not when the environment variable `OMP_NUM_THREADS=1` is set **before** either library loads.
+Torch can then raise its own thread count with `torch.set_num_threads()`; 40 rounds of alternating
+convolutions and XGBoost fits ran without a crash.
+
+**Decision.**
+- `tests/conftest.py` sets `OMP_NUM_THREADS=1` before anything else is imported.
+- `repro.py` imports torch only inside `set_seed()`, so `scripts/run_diagnosis.py` never loads torch.
+- The backend (Phase 6) sets the variable at the top of its package, before any import, then sets
+  torch's thread count explicitly.
+
+**Trade-offs.** A setting that must come before imports is easy to break by reordering code, so each
+place has a comment pointing here. A cleaner fix would be one shared `libomp` for both libraries,
+which needs building one of them from source.

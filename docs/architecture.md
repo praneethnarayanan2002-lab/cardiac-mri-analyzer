@@ -2,7 +2,7 @@
 
 What the pieces are and how they connect. `flow.md` follows execution step by step; this file is the
 map. Sections are added in the phase that builds each part: the research package and the three
-segmenters (Phases 3–4), the backend in Phase 6, the frontend in Phase 7, deployment in Phase 8.
+segmenters, clinical numbers, diagnosis and uncertainty (Phases 3–5), the backend in Phase 6, the frontend in Phase 7, deployment in Phase 8.
 
 ---
 
@@ -33,6 +33,7 @@ flowchart TD
         EV["evaluate.py"]
         EM["evaluate_medsam.py"]
         ME["measure.py"]
+        EU["evaluate_uncertainty.py"]
     end
     subgraph Data["data/"]
         IO["io.py<br/>PatientMeta, Frame, load_frame"]
@@ -49,6 +50,8 @@ flowchart TD
     INF["infer.py<br/>predict_volume, postprocess"]
     MET["metrics.py<br/>dice, hd95"]
     CL["clinical.py<br/>volumes, EF, mass,<br/>thickness, Bland-Altman"]
+    CLS["classify.py<br/>features, rules,<br/>logistic, XGBoost"]
+    UNC["uncertainty.py<br/>TTA, doubt maps,<br/>risk–coverage"]
     CFG["config.py"]
     REP["repro.py<br/>seeds, git commit"]
     TR --> CFG & DS & AU & SP & INF & MET & REP
@@ -56,11 +59,16 @@ flowchart TD
     EV --> INF & MET & SP & IO & REP
     EM --> MS & INF & MET & SP & IO & EV
     ME --> CL & INF & MS & MET & SP & IO & REP
+    EU --> UNC & INF & MET & ME & REP
+    UNC --> PP & INF
+    CLS --> IO
     INF --> PP & UN & UP
 ```
 
 `clinical.py` is pure arithmetic on label maps: it never sees an image or a model, so the same code
 measures expert masks, U-Net masks, MedSAM masks and, later, masks from an upload in the app.
+`classify.py` likewise only sees a table of measurements: it imports no deep-learning code, so the
+diagnosis script runs without torch (`decisions.md` D28).
 
 `infer.py` is the one place that turns an image into a label map. Training (for validation), evaluation
 and, later, the web backend all call it, so they cannot drift apart.
