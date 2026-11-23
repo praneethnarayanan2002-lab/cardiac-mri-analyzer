@@ -9,9 +9,11 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 ## Status
 
-The project is being built in phases (see `docs/`). Phases 0 (setup) and 1 (data) are done: the data
-downloads, verifies and is split by patient. No model has been trained yet, so there is no results table.
-Every number that appears here later will come from a real run saved in `results/`.
+The project is being built in phases (see `docs/`). Phases 0–2 are done: setup, data, and a baseline
+U-Net trained from scratch. So far the model has only been evaluated on the 20 **validation** patients
+(`results/val/`); the 50 test patients stay untouched until all three segmenters are trained (Phase 3), so
+there is no results table yet. Every number that appears here later will come from a real run saved in
+`results/`.
 
 ## Quick start
 

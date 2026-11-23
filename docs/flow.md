@@ -155,3 +155,131 @@ five figures to `figures/`. The one that matters most for later phases:
 These are computed from the expert masks, not from any model. Dilated hearts (DCM) are big and pump
 weakly; hypertrophic hearts (HCM) pump strongly; previous infarction (MINF) sits in between. If the
 segmentation is good, the diagnosis classifier in Phase 5 has a clear signal to work with.
+
+---
+
+## 2. One training step, from a NIfTI file to a gradient update
+
+Command: `make train`, which runs `uv run python -m cardiac.train --config configs/unet_scratch.yaml`.
+
+Before the first step, everything is loaded once and kept in memory:
+
+```mermaid
+sequenceDiagram
+    participant T as train.py
+    participant C as config.py
+    participant S as splits.py
+    participant IO as io.py
+    participant P as preprocess.py
+    participant DS as dataset.py
+    T->>C: load_config("configs/unet_scratch.yaml")
+    C-->>T: Config (typed; unknown keys are an error)
+    T->>T: set_seed(0), make_run_dir() → runs/unet_scratch/<time>-seed0/
+    T->>S: load_splits("data/splits.json")
+    S-->>T: 80 train ids, 20 val ids (re-checked for overlap)
+    loop each patient × {ED, ES}
+        T->>IO: load_frame(root, meta, phase)
+        IO-->>T: image (192,192,Z) float32, label uint8, spacing (1,1,10)
+        T->>P: prepare(image, spacing, label)
+        P-->>T: slices (Z,192,192) z-scored, labels (Z,192,192)
+    end
+    T->>DS: SliceDataset(train volumes, training_transforms())
+    DS-->>T: 1,372 slices, as arrays (1372, 1, 192, 192)
+```
+
+Then one training step, on one batch:
+
+```mermaid
+sequenceDiagram
+    participant DL as DataLoader (4 worker processes)
+    participant DS as SliceDataset.__getitem__
+    participant AUG as augment.py
+    participant M as U-Net (on the M4 GPU, "mps")
+    participant L as DiceCELoss
+    participant O as AdamW
+    DL->>DS: index i (16 random indices per batch)
+    DS->>AUG: {"image": (1,192,192), "label": (1,192,192)}
+    AUG-->>DS: rotated / zoomed / flipped / warped copy
+    DS-->>DL: image float32, label int64
+    DL->>M: images (16, 1, 192, 192)
+    M-->>L: scores (16, 4, 192, 192)
+    L->>L: softmax → compare with labels (one-hot) → Dice loss + CE loss
+    L->>M: loss.backward(): a gradient for each of 6,496,585 weights
+    O->>M: optimizer.step(): move every weight against its gradient
+```
+
+Shapes at each stage:
+
+| Stage | Shape | dtype | Where |
+|---|---|---|---|
+| NIfTI image on disk | (192, 192, Z), Z = 5–11 | float | `load_nifti` |
+| after `prepare` | (Z, 192, 192) | float32, mean 0, std 1 | `preprocess.py` |
+| one dataset item | (1, 192, 192) | float32 / int64 | `SliceDataset.__getitem__` |
+| one batch | (16, 1, 192, 192) | float32 | `DataLoader` |
+| model output | (16, 4, 192, 192) | float32 scores | `UNet.forward` |
+| loss | () a single number | float32 | `DiceCELoss` |
+
+## 3. A full training run with early stopping
+
+```mermaid
+flowchart TD
+    A["epoch = 0, best = −1"] --> B["train_one_epoch()<br/>85 batches of 16"]
+    B --> C["schedule.step()<br/>warm-up 5 epochs, then cosine"]
+    C --> D["validate()<br/>predict 20 patients × ED/ES<br/>3D Dice per structure"]
+    D --> E["append a row to log.csv"]
+    E --> F{"mean val Dice<br/>> best?"}
+    F -- yes --> G["save best.pt<br/>(weights + config + epoch)<br/>since_best = 0"]
+    F -- no --> H["since_best += 1"]
+    G --> I{"since_best ≥ 20<br/>or epoch = 150?"}
+    H --> I
+    I -- no --> B
+    I -- yes --> J["stop; best.pt holds<br/>the best validation epoch"]
+```
+
+Validation is done the same way the final numbers are reported: whole 3D volumes, one Dice per
+structure per patient per phase, then averaged. Checkpoints are chosen on these 3D scores, not on
+per-slice scores. Validation during training skips post-processing to keep it fast; the evaluation
+step below measures both.
+
+Each run folder holds:
+
+```
+runs/unet_scratch/20261122-185431-seed0/
+├── config.yaml       the exact settings used
+├── git_commit.txt    the code version (and a note if there were uncommitted changes)
+├── log.csv           one row per epoch: lr, train loss, val Dice per structure, seconds
+└── best.pt           weights from the best validation epoch (never committed to git)
+```
+
+## 4. Inference on one patient
+
+`predict_volume()` in `src/cardiac/infer.py`, as used by `cardiac.evaluate` and later by the app:
+
+```mermaid
+flowchart TD
+    A["image (X, Y, Z) on its own grid<br/>+ spacing from the header"] --> B["prepare()<br/>resample in-plane to 1 mm (nearest for labels)<br/>centre crop / pad to 192 × 192<br/>clip 1–99 %, z-score"]
+    B --> C["slices (Z, 192, 192)"]
+    C --> D["predict_probabilities()<br/>batches of 32 slices through the U-Net<br/>softmax over the 4 classes"]
+    D --> E["probabilities (Z, 4, 192, 192)"]
+    E --> F["argmax per pixel → labels (Z, 192, 192)"]
+    F --> G["restore()<br/>undo crop/pad, resample back (nearest)<br/>→ (X, Y, Z) on the original grid"]
+    G --> H["postprocess()"]
+    H --> H1["remove_small_components()<br/>per structure, 3D, 26-connectivity<br/>drop blobs < 10% of the largest"]
+    H1 --> H2["fill_cavity_holes()<br/>LV and RV only, per slice"]
+    H2 --> I["label map (X, Y, Z) uint8<br/>same grid as the input"]
+```
+
+Two details matter:
+
+- **Predictions go back to the original grid before anything is measured.** Dice, HD95 and every
+  volume are computed on the scan's own voxels with its own spacing. On the mirror this is the identity
+  (it is already 1 mm, 192 × 192), but `tests/test_preprocess.py` checks the round trip for crop, pad
+  and resample cases, because uploads in the app won't be.
+- **Post-processing never fills the myocardium.** The myocardium is a ring around the LV; filling its
+  "hole" would swallow the LV. Only the two cavities are filled, and only where the hole is background.
+
+Evaluation (`uv run python -m cardiac.evaluate --run <run folder> --split val`) runs this for every
+validation patient and phase, both with and without `postprocess()`, and writes per-patient rows to
+`results/val/<name>_seed<k>.csv` plus mean ± std per structure, phase and group to the matching
+`.json`. The headline numbers are post-processed; the raw ones are kept to measure what
+post-processing actually changes.
