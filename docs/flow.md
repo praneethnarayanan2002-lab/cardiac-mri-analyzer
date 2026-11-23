@@ -9,10 +9,10 @@ next to the code. Each section is written in the phase that builds that part of 
 4. Inference on one patient (Phase 2)
 5. [Clinical calculation, worked example](#5-clinical-calculation-worked-example) (Phase 4)
 6. [Diagnosis and SHAP for the same patient](#6-diagnosis-and-shap-for-the-same-patient) (Phase 5)
-7. An upload in the app (Phase 6)
-8. Report generation (Phase 6)
+7. [An upload in the app](#7-an-upload-in-the-app) (Phase 6)
+8. [Report generation](#8-report-generation) (Phase 6)
 9. The evaluation run that writes `results/` (Phases 3–5)
-10. What happens when something goes wrong (Phase 6)
+10. [What happens when something goes wrong](#10-what-happens-when-something-goes-wrong) (Phase 6)
 
 ---
 
@@ -463,6 +463,80 @@ wall motion in segments, which none of our features measure.
 
 ---
 
+## 7. An upload in the app
+
+From the moment a user drops two files to the overlay on screen. The frontend half is written in
+Phase 7; the backend half is `backend/app/routes/cases.py` and `services/`.
+
+```mermaid
+sequenceDiagram
+    participant UI as React app
+    participant R as routes/cases.py
+    participant U as services/uploads.py
+    participant A as services/analysis.py
+    participant P as src/cardiac
+    participant S as services/store.py
+    UI->>R: POST /api/analyze (ed.nii.gz, es.nii.gz, height_cm, weight_kg)
+    R->>R: read at most 200 MB per file
+    R->>U: read_volume(bytes, name) × 2
+    U->>U: temp folder → nibabel → checks (3D, size, spacing, finite)
+    U-->>R: (X, Y, Z) float32 + spacing, or UploadError → 422 with the reason
+    R->>U: check_pair(): same shape and spacing
+    R->>A: analyse(models, images, spacing, height, weight) in a worker thread
+    A->>P: predict_volume() → LV centre → re-crop if > 16 mm off (up to 3 passes)
+    A->>P: predict_volume() × 2 models × 2 phases (masks)
+    A->>P: predict_with_doubt() × 2 phases (10 TTA views → doubt map, score)
+    A->>P: measure_patient(ED mask, ES mask, spacing, height, weight)
+    A->>A: features → XGBoost probabilities → SHAP → 5 reasons in words
+    A-->>R: layers + summary
+    R->>S: add_upload(): window images to uint8, keep in memory for 1 h
+    R-->>UI: {"case_id": "…"}
+    UI->>R: GET /api/cases/{id}
+    R-->>UI: CaseSummary JSON
+    loop every slice and layer shown
+        UI->>R: GET /api/cases/{id}/slice/{phase}/{k}?layer=unet_pretrained
+        R-->>UI: label PNG (pixel values 0–3)
+    end
+    UI->>UI: draw image canvas + colour the mask canvas
+```
+
+**Re-centring.** The U-Nets were trained on 192 × 192 crops centred on the LV. A scan from another
+source may have the heart anywhere. `find_crop_centre()` runs the pretrained U-Net once on the centre
+crop, takes the centre of the predicted LV, and if it is more than 16 mm from the image centre, crops
+around it and tries again, until the centre moves less than 2 mm (at most 3 passes). On the mirror's
+own scans the LV is always near the centre, so nothing moves and the masks are exactly the evaluated
+ones. Tested by padding test patient129 to 320 × 320 with the heart near a corner: the off-centre
+upload gives the same measurements as the original to the second decimal.
+
+**Timing.** On CPU (Apple M4, 10 threads), the whole analysis for patient129 took about 4 seconds:
+2 re-centring passes, 4 single-view predictions and 20 TTA views.
+
+**Samples** take the same path, once, ahead of time: `scripts/cache_sample_cases.py` calls the same
+`analyse()` and adds the expert and MedSAM layers and the cine, then saves `data/cache/samples/<pid>`.
+`GET /api/samples` lists them and they load instantly.
+
+---
+
+## 8. Report generation
+
+`GET /api/cases/{id}/report.pdf` → `backend/app/report.py`, `build_report(case)`:
+
+```mermaid
+flowchart LR
+    C["Case<br/>(summary + uint8 arrays)"] --> M["middle_slice()<br/>slice with most LV, ED and ES"]
+    M --> O["overlay_png()<br/>to_display() → RGB → blend<br/>structure colours at 45%"]
+    C --> T["measurements table<br/>value · normal range · status"]
+    C --> D["diagnosis + 5 reasons"]
+    C --> U["doubt score vs threshold"]
+    O & T & D & U --> RL["ReportLab platypus<br/>SimpleDocTemplate, A4"]
+    RL --> PDF["one page, ~140 kB"]
+```
+
+Everything on the report comes from the case summary the app already shows, so the PDF can never
+say something the screen doesn't. The footer names the model run and the code version.
+
+---
+
 ## 9. The evaluation run that writes `results/`
 
 Segmentation (Phase 3), clinical numbers (Phase 4), then uncertainty and diagnosis (Phase 5).
@@ -567,3 +641,29 @@ flowchart TD
 - `run_diagnosis.py` checks that, for every saved patient, the SHAP values plus the base value add up
   to the model's raw score. shap only updates its base value after computing SHAP values on the same
   explainer, which an earlier version of the script got wrong.
+
+---
+
+## 10. What happens when something goes wrong
+
+Every failure should say what happened in words a user can act on, and nothing should fail silently.
+
+| Situation | Where it's caught | What the user gets |
+|---|---|---|
+| Not a NIfTI file, or a corrupt one | `uploads.read_volume()` | 422: "ed.nii.gz: could not be read as NIfTI" |
+| Wrong extension (e.g. `.png`) | `read_volume()` | 422: "expected a .nii or .nii.gz file" |
+| `.nii.gz` name but not gzipped (or the reverse) | `read_volume()` looks at the first two bytes, not the name | works |
+| A 4D cine or a 2D image | `read_volume()` | 422: "expected one 3D frame (X, Y, slices), got shape …" |
+| Header without voxel spacing | `cardiac.data.io.load_nifti()` | 422: "header has no valid voxel spacing" |
+| Implausible size or spacing | `read_volume()` | 422 naming the value and the accepted range |
+| ED and ES of different shape or spacing | `uploads.check_pair()` | 422: "ED shape … and ES shape … differ" |
+| File over 200 MB | `routes/cases._read()` | 413 |
+| Missing height or weight | FastAPI form validation | 422 listing the missing field |
+| Trained weights not downloaded | `services/models.load_models()` at startup | the app still starts; `/api/health` shows the reason, samples and metrics work, uploads answer 503 with "models are not loaded: …" |
+| `results/` files missing | `/api/metrics/summary` | 503 naming the file |
+| Unknown or expired case id | `routes/cases._case()` | 404: "uploaded cases expire after an hour" |
+| Slice, frame or layer out of range | `get_slice()`, `get_cine()` | 404 naming the range |
+| torch and xgboost in one process | `backend/app/__init__.py` | prevented: OpenMP starts single-threaded (D28) |
+
+`tests/test_api.py` covers the upload checks, unknown cases and layers, missing models and the
+metrics endpoint, with small stand-in models so the tests don't need trained weights.

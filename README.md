@@ -9,10 +9,10 @@ where the model is unsure. It is built on the public ACDC dataset.
 
 ## Status
 
-The project is being built in phases (see `docs/`). Phases 0–5 are done: setup, data, three segmenters
+The project is being built in phases (see `docs/`). Phases 0–6 are done: setup, data, three segmenters
 evaluated once on the 50 held-out test patients, the clinical numbers derived from their masks, a
-diagnosis model with explanations, and an uncertainty score. The app comes next. Every number below
-comes from a file in `results/`.
+diagnosis model with explanations, an uncertainty score, and the backend API. The frontend comes
+next. Every number below comes from a file in `results/`.
 
 ## Results so far: segmentation on the test set
 
@@ -120,6 +120,19 @@ make data     # downloads ACDC (~1.1 GB), verifies it, prints a summary, writes 
 make test     # runs the test suite inside .venv/
 make lint     # ruff (lint + format check) and mypy
 ```
+
+Reproducing the results and running the backend:
+
+```bash
+make train    # both U-Nets, 3 seeds each (about 2.5 hours on an Apple M4)
+make eval     # test-set evaluation, clinical numbers, uncertainty, diagnosis → results/, figures/
+make samples  # normal ranges and the 5 precomputed sample patients for the app
+make api      # backend on http://localhost:8000 (interactive API docs at /docs)
+```
+
+The trained weights are not in git (`docs/decisions.md` D5), so `make api` needs `make train` and
+`make eval` first. Without weights the backend still starts and serves the samples and metrics;
+uploads answer with an explanation instead.
 
 To use the environment directly, either prefix commands with `uv run` (for example `uv run python`) or
 activate it with `source .venv/bin/activate`.
