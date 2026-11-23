@@ -33,7 +33,10 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
+      # Not `npm ci`: a lock file written on macOS lacks optional Linux-only packages (wasm
+      # fallbacks of the build tools), and npm ci refuses it. `npm install` still installs the
+      # locked versions and adds only those optional packages.
+      - run: npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm test
       - run: npm run build:static
