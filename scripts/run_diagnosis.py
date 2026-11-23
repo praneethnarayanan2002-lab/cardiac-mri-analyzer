@@ -5,7 +5,8 @@ Usage:
 
 Reads results/{train,val}/clinical_expert.csv (the 100 training patients) for training and
 cross-validation, and results/test/clinical_<source>.csv for testing. Writes results/diagnosis.json,
-results/test/diagnosis_predictions.csv, figures/diagnosis_confusion.png, figures/shap_global.png and
+results/test/diagnosis_predictions.csv, results/test/diagnosis_shap.csv (per-patient SHAP values for
+expert and pretrained-seed-0 features), figures/diagnosis_confusion.png, figures/shap_global.png and
 the fitted model to runs/classifier/xgboost.json (for the app; not in git).
 """
 
@@ -64,6 +65,49 @@ def mean_std(blocks: list[dict[str, object]], key: str) -> dict[str, float]:
     return {"mean": float(np.mean(values)), "std": std}
 
 
+SHAP_SOURCES = ("expert", "unet_resnet34_seed0")
+
+
+def shap_table(
+    model: object, table: pd.DataFrame, x: np.ndarray, stem: str
+) -> list[dict[str, object]]:
+    """One row per patient and feature: the feature's value and its SHAP value towards each group.
+    A row with feature "(base)" holds the explainer's base score per group, so for each patient and
+    group, base + the sum of the feature rows = the model's raw score (checked here)."""
+    values, base = shap_values(model, x)
+    rows: list[dict[str, object]] = []
+    for i, pid in enumerate(table.pid):
+        per_feature = [("(base)", np.nan, base)]
+        per_feature += [(f, float(x[i, j]), values[i, j]) for j, f in enumerate(FEATURES)]
+        for feature, value, contributions in per_feature:
+            row: dict[str, object] = {"pid": pid, "features_from": stem, "feature": feature}
+            row["value"] = value
+            row.update({f"shap_{g}": float(contributions[k]) for k, g in enumerate(ACDC_GROUPS)})
+            rows.append(row)
+    margins = np.asarray(model.predict(x, output_margin=True))  # type: ignore[attr-defined]
+    assert np.allclose(base + values.sum(axis=1), margins, atol=1e-3), "SHAP does not add up"
+    return rows
+
+
+def agreement(predictions: pd.DataFrame) -> dict[str, dict[str, float]]:
+    """How often the XGBoost diagnosis from a segmenter's features equals the one from the expert's
+    features for the same patient, whether or not either is right. Mean over runs."""
+    expert = predictions[predictions.features_from == "expert"].set_index("pid").xgboost
+    out = {}
+    for source, stems in TEST_SOURCES.items():
+        if source == "expert":
+            continue
+        rates = []
+        for stem in stems:
+            part = predictions[predictions.features_from == stem].set_index("pid").xgboost
+            if len(part):
+                rates.append(float((part == expert.reindex(part.index)).mean()))
+        if rates:
+            std = float(np.std(rates, ddof=1)) if len(rates) > 1 else 0.0
+            out[source] = {"mean": float(np.mean(rates)), "std": std}
+    return out
+
+
 def plot_confusions(matrices: dict[str, list[list[int]]], out: Path) -> None:
     fig, axes = plt.subplots(1, len(matrices), figsize=(3.4 * len(matrices), 3.6))
     for ax, (title, matrix) in zip(np.atleast_1d(axes), matrices.items(), strict=True):
@@ -105,12 +149,17 @@ def plot_shap(mean_abs: pd.DataFrame, out: Path) -> None:
     save(fig, out)
 
 
-def shap_values(model: object, x: np.ndarray) -> np.ndarray:
-    """(patients, features, classes) SHAP values in log-odds units."""
-    values = np.asarray(shap.TreeExplainer(model).shap_values(x))
+def shap_values(model: object, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(patients, features, classes) SHAP values in log-odds units, and the base value per class.
+
+    The base is read after computing the values on the same explainer: shap updates
+    expected_value during that call, and only the updated one makes base + values add up to the
+    model's raw score."""
+    explainer = shap.TreeExplainer(model)
+    values = np.asarray(explainer.shap_values(x))
     if values.shape[0] == len(ACDC_GROUPS) and values.ndim == 3:  # older shap: classes first
         values = np.moveaxis(values, 0, 2)
-    return values
+    return values, np.asarray(explainer.expected_value, dtype=float)
 
 
 def main() -> None:
@@ -146,6 +195,7 @@ def main() -> None:
 
     test_results: dict[str, object] = {}
     predictions = []
+    shap_rows: list[dict[str, object]] = []
     confusions: dict[str, list[list[int]]] = {}
     for source, stems in TEST_SOURCES.items():
         per_model: dict[str, list[dict[str, object]]] = {"xgboost": [], "logistic": [], "rules": []}
@@ -164,6 +214,8 @@ def main() -> None:
             for name, pred in preds.items():
                 per_model[name].append(scores(y, pred))
             probs = xgb.predict_proba(x)
+            if stem in SHAP_SOURCES:
+                shap_rows += shap_table(xgb.best_estimator_, table, x, stem)
             for i, row in enumerate(table.itertuples()):
                 predictions.append(
                     {
@@ -192,8 +244,9 @@ def main() -> None:
             if blocks
         }
     results["test"] = test_results
+    results["agreement_with_expert_features"] = agreement(pd.DataFrame(predictions))
 
-    values = shap_values(xgb.best_estimator_, x_train)
+    values, _ = shap_values(xgb.best_estimator_, x_train)
     mean_abs = pd.DataFrame(np.abs(values).mean(axis=0), index=list(FEATURES), columns=ACDC_GROUPS)
     results["shap_mean_abs_train"] = {
         f: {g: float(mean_abs.loc[f, g]) for g in ACDC_GROUPS} for f in FEATURES
@@ -202,6 +255,9 @@ def main() -> None:
     Path("results/diagnosis.json").write_text(json.dumps(results, indent=2) + "\n")
     pd.DataFrame(predictions).to_csv(
         "results/test/diagnosis_predictions.csv", index=False, float_format="%.4f"
+    )
+    pd.DataFrame(shap_rows).to_csv(
+        "results/test/diagnosis_shap.csv", index=False, float_format="%.4f"
     )
     plot_confusions(confusions, Path("figures/diagnosis_confusion.png"))
     plot_shap(mean_abs, Path("figures/shap_global.png"))

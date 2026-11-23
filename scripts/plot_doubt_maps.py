@@ -21,8 +21,10 @@ from cardiac.metrics import dice
 from cardiac.plots import middle_slice, save, show_slice, structure_legend
 from cardiac.uncertainty import predict_with_doubt
 
-# One hue, transparent-ish light to dark: more doubt = darker purple.
-DOUBT_CMAP = LinearSegmentedColormap.from_list("doubt", ["#f4f0fb", "#9a7ad6", "#3b1f78"])
+# One hue, light to dark: more doubt = darker purple. Pixels with almost no doubt are left out, so
+# the scan shows through everywhere the model is sure.
+DOUBT_CMAP = LinearSegmentedColormap.from_list("doubt", ["#d9cdf3", "#9a7ad6", "#3b1f78"])
+SHOW_ABOVE = 0.02
 
 
 def main() -> None:
@@ -49,8 +51,9 @@ def main() -> None:
         show_slice(row_axes[1], frame.image[:, :, k], label[:, :, k])
         row_axes[1].set_title(f"U-Net + TTA\nmean Dice {mean_dice:.3f} (whole heart)", fontsize=8)
         show_slice(row_axes[2], frame.image[:, :, k], None)
-        shown = row_axes[2].imshow(doubt[:, :, k].T / 255.0, cmap=DOUBT_CMAP, vmin=0, vmax=0.6,
-                                   alpha=0.85, origin="lower", interpolation="nearest")  # fmt: skip
+        plane = np.ma.masked_less(doubt[:, :, k].T / 255.0, SHOW_ABOVE)
+        shown = row_axes[2].imshow(plane, cmap=DOUBT_CMAP, vmin=0, vmax=0.6, origin="lower",
+                                   interpolation="nearest")  # fmt: skip
         row_axes[2].set_title(f"doubt map\npatient score {row.doubt_score:.3f}", fontsize=8)
     bar = fig.colorbar(shown, ax=axes[:, 2], fraction=0.05, pad=0.02)
     bar.set_label("doubt (normalised entropy)", fontsize=8)
