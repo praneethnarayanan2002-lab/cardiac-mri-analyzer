@@ -1,0 +1,8 @@
+{
+  "rule": "per group, 5th of 10 test patients by pretrained seed-0 mean Dice",
+  "NOR": "patient107",
+  "MINF": "patient118",
+  "DCM": "patient122",
+  "HCM": "patient142",
+  "RV": "patient140"
+}
