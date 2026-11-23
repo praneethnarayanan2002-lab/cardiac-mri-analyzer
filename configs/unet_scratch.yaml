@@ -1,0 +1,21 @@
+# U-Net trained from scratch. Every value is explained in docs/decisions.md.
+name: unet_scratch
+model: unet_scratch
+dropout: 0.1
+
+data:
+  root: data/raw/acdc
+  splits: data/splits.json
+  target_spacing_mm: 1.0   # the mirror is already 1 mm in-plane (decisions D9)
+  size: 192
+
+train:
+  batch_size: 16
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  warmup_epochs: 5
+  max_epochs: 150
+  patience: 20            # stop if validation Dice hasn't improved for 20 epochs
+  num_workers: 4
+  augment: true
+  seed: 0

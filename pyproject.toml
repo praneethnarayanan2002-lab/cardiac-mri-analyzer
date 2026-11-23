@@ -83,3 +83,8 @@ ignore_missing_imports = true
 # nibabel ships partial type hints; its untyped header methods would otherwise fail strict mode.
 module = ["cardiac.data.io"]
 disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+# MONAI re-exports its classes from package __init__ files without __all__; allow importing them.
+module = ["monai", "monai.*"]
+implicit_reexport = true

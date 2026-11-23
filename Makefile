@@ -1,7 +1,7 @@
 # Every Python command goes through `uv run`, which uses the project's .venv/ and never a global Python.
-# Targets for later phases (train, eval, api, ui) are added in the phase that builds them.
+# Targets for later phases (eval, api, ui) are added in the phase that builds them.
 
-.PHONY: setup data data-lite explore test lint format typecheck notebook clean
+.PHONY: setup data data-lite explore train test lint format typecheck notebook clean
 
 setup:
 	uv python install 3.11
@@ -19,6 +19,9 @@ data-lite:
 
 explore:
 	cd notebooks && uv run jupyter nbconvert --to notebook --execute --inplace 01_data_exploration.ipynb
+
+train:
+	uv run python -m cardiac.train --config configs/unet_scratch.yaml
 
 test:
 	uv run pytest
