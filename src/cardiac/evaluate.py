@@ -8,6 +8,7 @@ The test split needs --confirm-test, because it is evaluated once per model, at 
 
 import argparse
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -99,31 +100,34 @@ def main() -> None:
     device = pick_device()
     table = evaluate_run(args.run / "best.pt", args.split, device)
     _, config = load_checkpoint(args.run / "best.pt", device)
-    out_dir = Path("results") / args.split
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{config.name}_seed{config.train.seed}"
-    table.to_csv(out_dir / f"{stem}.csv", index=False, float_format="%.4f")
     checkpoint = torch.load(args.run / "best.pt", map_location="cpu", weights_only=False)
-    payload = {
+    info = {
         "run": str(args.run),
         "train_git_commit": (args.run / "git_commit.txt").read_text().strip(),
         "eval_git_commit": eval_commit,
-        "split": args.split,
-        "n_patients": int(table.pid.nunique()),
         "best_epoch": int(checkpoint["epoch"]),
-        **summarise(table),
     }
+    save_results(table, args.split, f"{config.name}_seed{config.train.seed}", info)
+
+
+def save_results(table: pd.DataFrame, split: str, stem: str, info: Mapping[str, object]) -> None:
+    """Writes results/<split>/<stem>.csv (one row per patient and phase) and .json (summary)."""
+    out_dir = Path("results") / split
+    out_dir.mkdir(parents=True, exist_ok=True)
+    table.to_csv(out_dir / f"{stem}.csv", index=False, float_format="%.4f")
+    summary = summarise(table)
+    payload = {**info, "split": split, "n_patients": int(table.pid.nunique()), **summary}
     (out_dir / f"{stem}.json").write_text(json.dumps(payload, indent=2) + "\n")
-    post = payload["post"]
-    assert isinstance(post, dict)
-    print(f"{stem} on {args.split} ({payload['n_patients']} patients), post-processed:")
+    post, raw = summary["post"], summary["raw"]
+    assert isinstance(post, dict) and isinstance(raw, dict)
+    print(f"{stem} on {split} ({payload['n_patients']} patients), post-processed:")
     for name in STRUCTURES.values():
         d, h = post["overall"][f"dice_{name}"], post["overall"][f"hd95_{name}"]
         print(
             f"  {name:<4} Dice {d['mean']:.3f} ± {d['std']:.3f}   "
             f"HD95 {h['mean']:.2f} ± {h['std']:.2f} mm"
         )
-    print(f"  mean Dice {post['mean_dice']:.4f} (raw {payload['raw']['mean_dice']:.4f})")
+    print(f"  mean Dice {post['mean_dice']:.4f} (raw {raw['mean_dice']:.4f})")
     print(f"wrote {out_dir / stem}.json and .csv")
 
 

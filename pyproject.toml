@@ -80,8 +80,8 @@ strict = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# nibabel ships partial type hints; its untyped header methods would otherwise fail strict mode.
-module = ["cardiac.data.io"]
+# nibabel and transformers ship partial type hints; their untyped methods would fail strict mode.
+module = ["cardiac.data.io", "cardiac.models.medsam"]
 disallow_untyped_calls = false
 
 [[tool.mypy.overrides]]
