@@ -292,3 +292,74 @@ flowchart LR
 | Upload your own scan | yes | no (says how to run locally) |
 | Needs | Python env, weights, Node | a browser |
 
+
+## 7. Data shapes at every stage
+
+One frame of one patient, from file to browser (the mirror's sizes; X and Y are in-plane, S is the
+number of short-axis slices, typically 6–10):
+
+```mermaid
+flowchart LR
+    A["NIfTI on disk<br/>(X, Y, S) float<br/>+ spacing mm"] -->|"load_frame()"| B["image (X, Y, S) float32<br/>label (X, Y, S) uint8 0–3"]
+    B -->|"prepare()"| C["(S, 192, 192) float32<br/>z-scored"]
+    C -->|"batched, + channel"| D["(B, 1, 192, 192)<br/>network input"]
+    D -->|"U-Net, softmax"| E["(S, 4, 192, 192) float32<br/>probabilities"]
+    E -->|"argmax, restore(),<br/>postprocess()"| F["(X, Y, S) uint8<br/>label map"]
+    E -->|"10 TTA views,<br/>entropy × 255"| G["(X, Y, S) uint8<br/>doubt map"]
+    F -->|"measure_patient()"| H["15 numbers<br/>mL, %, g, mm, /m²"]
+    H -->|"feature_matrix()"| I["(1, 18) float<br/>features"]
+    I -->|"XGBoost"| J["(1, 5) probabilities<br/>+ (18, 5) SHAP"]
+    F & G -->|"to_display(), PNG"| K["(Y, X) uint8 PNG<br/>per slice"]
+    K -->|"colormap.ts"| L["RGBA canvas"]
+```
+
+| Stage | Shape | dtype | Where |
+|---|---|---|---|
+| file | (X, Y, S) | float (as stored) | `data/raw/acdc/…/*.nii.gz` |
+| frame | (X, Y, S) image, (X, Y, S) label | float32, uint8 | `cardiac.data.io.Frame` |
+| network input | (S, 192, 192) → batches of (B, 1, 192, 192) | float32 | `cardiac.data.preprocess.prepare` |
+| network output | (S, 4, 192, 192) | float32 | `cardiac.infer.predict_probabilities` |
+| label map | (X, Y, S) | uint8, 0–3 | `cardiac.infer.predict_volume` |
+| doubt map | (X, Y, S) | uint8, 0–255 | `cardiac.uncertainty.predict_with_doubt` |
+| measurements | 15 named values | float | `cardiac.clinical.measure_patient` |
+| features | (patients, 18) | float | `cardiac.classify.feature_matrix` |
+| PNG slice | (Y, X) after `to_display` | uint8 | `backend/app/services/images.py` |
+
+## 8. Folder map
+
+```
+.github/workflows/deploy-demo.yml   builds and publishes the static demo
+backend/app/                        FastAPI app (§4)
+configs/                            unet_scratch.yaml, unet_resnet34.yaml, classifier.yaml
+data/splits.json                    patient ids per split (the only committed file in data/)
+docs/                               ml_basics, flow, architecture, decisions; images/ for the README
+figures/                            every figure, written by scripts and the notebook
+frontend/                           React app (§5); public/demo/ holds the exported demo files
+notebooks/01_data_exploration.ipynb data exploration
+results/                            every number, written by evaluation scripts
+scripts/
+  download_data.py                  fetch and verify the ACDC mirror
+  make_splits.py                    write data/splits.json
+  plot_run.py, plot_augmentations.py, plot_wall_thickness.py, plot_doubt_maps.py   figures
+  summarize_segmentation.py         results/segmentation.json + figures
+  summarize_clinical.py             results/clinical.json + Bland-Altman plots
+  summarize_uncertainty.py          results/uncertainty.json + risk–coverage plot
+  run_diagnosis.py                  diagnosis models, results/diagnosis.json, SHAP
+  normal_ranges.py                  results/normal_ranges.json
+  cache_sample_cases.py             the app's 5 samples → data/cache/samples/
+  export_demo.py                    the static demo → frontend/public/demo/
+  make_readme_gif.py                docs/images/slices.gif
+src/cardiac/
+  data/io.py, splits.py, preprocess.py, augment.py, dataset.py
+  models/unet.py, unet_pretrained.py, medsam.py
+  config.py, repro.py               configs; seeds and code version
+  train.py                          training loop with early stopping
+  infer.py                          image → label map, post-processing
+  metrics.py                        Dice, HD95
+  evaluate.py, evaluate_medsam.py   segmentation scores per patient
+  clinical.py, measure.py           clinical numbers
+  classify.py                       diagnosis features and models
+  uncertainty.py, evaluate_uncertainty.py   TTA doubt
+  plots.py                          shared figure helpers
+tests/                              pytest suite
+```
