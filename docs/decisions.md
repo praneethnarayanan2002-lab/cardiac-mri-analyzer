@@ -390,3 +390,84 @@ uncertainty. Training with flips makes the network handle both orientations.
 **Trade-offs.** The network can no longer use "the RV is on the left" as a cue, and must tell RV from LV
 by shape (the LV is round with a thick wall; the RV is a thin crescent). If the RV score turns out to be
 weak, this is the first thing I'd test, by training once without flips.
+
+---
+
+## D18. ResNet-34 as the pretrained encoder, trained under the same rules as the scratch U-Net
+
+**Context.** RQ2 asks whether starting from ImageNet weights helps on a small medical dataset. To answer
+it, the pretrained model must differ from the scratch model in that one respect as far as possible.
+
+**Options considered.** ResNet-18 (smaller, weaker features), **ResNet-34**, ResNet-50 and larger
+(bottleneck blocks, 2–4× the encoder size), EfficientNet or ConvNeXt encoders, a transformer encoder.
+
+**Decision.** `smp.Unet("resnet34", encoder_weights="imagenet", in_channels=1, classes=4)`. Same data,
+split, augmentation, loss, batch size, schedule shape, early-stopping rule and three seeds as the scratch
+U-Net. The only training difference is the learning rate (3e-4 instead of 1e-3): large early updates
+would overwrite the pretrained features before the decoder has learned to use them.
+
+**Why.** ResNet-34 is the most common pretrained encoder in medical segmentation papers. It is
+well understood, and at 24 M parameters it trains on the M4 in about the same time as the scratch
+model. Bigger encoders mostly add capacity, which 80 training patients can't use and would make the
+comparison about size instead of pretraining.
+
+**Trade-offs, stated honestly.** The two models are *not* identical apart from the weights. The
+pretrained one has 3.8× the parameters, one more downsampling level, and batch norm instead of instance
+norm (that's how ResNet is built). So a difference in results is "ImageNet-pretrained ResNet-34 U-Net vs.
+scratch MONAI U-Net", not "pretraining alone". A cleaner test would also train the same ResNet-34 U-Net
+from random weights. I left it out to keep to the plan's three segmenters, and list it as next work.
+
+The plan said smp *averages* the RGB weights of the first convolution for 1-channel input. Reading the
+library code (`patch_first_conv`) shows it **sums** them. Summing keeps the response to a grey image the
+same as to an RGB photo of equal brightness, which is the more sensible choice anyway.
+
+---
+
+## D19. MedSAM with oracle boxes is an upper bound, not a fair comparison
+
+**Context.** MedSAM needs a prompt for every structure on every slice. In real use, a person or another
+model would have to draw those boxes.
+
+**Decision.** Follow the plan: build each box from the **expert** label (tight bounding box + 5 px),
+then measure sensitivity by moving each box edge by up to 0, 5, 10 and 20 px (1 px = 1 mm here), with a
+fixed random seed. Paint masks in the order RV → MYO → LV so the LV wins where masks overlap.
+
+**Why this is an upper bound.** The oracle box gives MedSAM three things the U-Nets have to work out
+themselves: which slices contain each structure (no box means "not here"), roughly where each structure
+is, and how big it is. A U-Net that is shown nothing still has to find all of that. So MedSAM's score
+here is the best it could do with a perfect assistant, and the jitter curve shows how quickly that
+falls as the assistant gets sloppier.
+
+**What happened with the myocardium.** On the first validation patient, a box around the myocardium made
+MedSAM outline the bright **LV blood pool inside it**: 3,927 of its 4,012 mask pixels were LV cavity, 85
+were myocardium. The LV mask then paints over it, and almost no myocardium is left. This isn't a bug: the
+same code gives sensible RV and LV masks. A box can't say "the ring, not the thing in the middle", and
+SAM-style models tend to pick the most obvious object inside a box. I kept the plan's protocol and report
+the result as it is. Better prompting (a positive point on the muscle and a negative point in the
+cavity, or "epicardium box minus LV mask") might fix it. That would be a different method, so it goes
+under next steps rather than quietly into this comparison.
+
+**Trade-offs.** Results here say nothing about MedSAM with automatic prompts, and nothing about MedSAM
+fine-tuned on ACDC; both would likely change the picture.
+
+---
+
+## D20. Three seeds, the same stopping rule for every model, and when the test set is opened
+
+**Context.** One training run can be lucky or unlucky: random initial weights, random augmentation and
+random batch order all change the result. Two models whose scores differ by less than this
+run-to-run noise are not really different.
+
+**Decision.** Train each U-Net with seeds 0, 1 and 2, and report mean ± standard deviation over the three
+seeds. All six runs use the same rule: up to 150 epochs, stop after 20 without improvement. The test set
+is evaluated once per trained model, after all six runs exist and nothing more will be changed.
+
+**About the learning-rate schedule (D14).** After the first run I noted that early stopping ends runs
+before the cosine schedule gets small, and considered setting `max_epochs` to about 80. I decided not
+to. Validation Dice had already been flat for 35 epochs, so the expected gain is small. Changing it
+would also mean retraining seed 0, and both models would be affected the same way, so it doesn't bias
+the comparison. It stays a candidate for future work.
+
+**Statistics.** Seed-level mean ± std shows training noise. To compare scratch and pretrained on the same
+patients, I average each patient's Dice over seeds and over ED/ES (one number per patient, 50 pairs) and
+use a paired Wilcoxon signed-rank test, which doesn't assume the differences are normally distributed.

@@ -501,3 +501,74 @@ class. A unit test (`test_augmentation_keeps_image_and_label_aligned`) checks fo
 
 **Where it lives in our code.** `training_transforms()` in `src/cardiac/data/augment.py`. Applied only
 to training slices, never to validation or test.
+
+---
+
+## 12. Transfer learning
+
+**What it is.** Instead of starting a network from random weights, start from weights another network
+already learned on a different, much bigger task, then keep training on yours. The usual source is
+**ImageNet**: 1.2 million everyday photos in 1,000 categories.
+
+It sounds odd that photos of dogs and cars would help with heart MRI. The reason is that early
+convolution layers learn very general things: edges, corners, blobs, textures (section 5). Those are
+useful for any image. Later layers become more specific to the original task, and training on our data
+adjusts them.
+
+```mermaid
+flowchart LR
+    subgraph Before["Already done by others"]
+        IMG["1.2 M ImageNet photos"] --> ENC["ResNet-34 encoder<br/>learns edges → textures → parts"]
+    end
+    ENC -->|"copy the encoder weights"| NEW["our U-Net encoder"]
+    DEC["new decoder<br/>random weights"] --> NEW
+    NEW -->|"train everything on<br/>80 ACDC patients, small lr"| FIN["cardiac segmenter"]
+```
+
+**Why we need it here.** 80 patients is very little data. A network starting from scratch has to learn
+what an edge is from those 80 hearts; a pretrained encoder already knows. This is RQ2: does that head
+start actually help, once both are trained to convergence?
+
+Two practical details:
+
+- **Smaller learning rate** (3e-4 instead of 1e-3), so the first updates, driven by the still-random
+  decoder, don't wreck the useful encoder weights.
+- **Colour to grey.** ImageNet models expect three colour channels; an MRI slice has one. The library
+  adds the three colour filters of the first layer together into one grey filter.
+
+**Where it lives in our code.** `build_pretrained_unet()` in `src/cardiac/models/unet_pretrained.py`;
+`configs/unet_resnet34.yaml`.
+
+---
+
+## 13. Foundation models and prompting
+
+**What it is.** A **foundation model** is one very large model trained on a huge, varied dataset so it
+can do many tasks without being trained for each one. **SAM** (Segment Anything) was trained on
+11 million photos and over 1 billion masks to outline "the object" given a **prompt**: a click, or a box
+drawn around something. **MedSAM** is SAM retrained on about 1.5 million medical image–mask pairs (CT,
+MRI, ultrasound, endoscopy and more).
+
+Using it **zero-shot** means: no training on our data at all. We give it a slice and a box, and it
+returns a mask.
+
+```mermaid
+flowchart LR
+    I["slice"] --> M["MedSAM"]
+    B["box: 'the thing in here'"] --> M
+    M --> O["one mask"]
+```
+
+**What a box can and can't say.** A box says *where* to look, not *what* to outline. For the LV (a
+bright blob) and the RV (a bright crescent) the obvious object in the box is the right answer. For the
+myocardium it isn't: the box around the muscle ring also contains the bright LV cavity, and MedSAM
+outlines the cavity. We found this on the very first validation patient (`decisions.md` D19).
+
+**The catch in our setup: oracle boxes.** We draw the boxes from the expert's answer. In real use,
+nobody would have that answer; someone would have to draw boxes by hand on every slice, or another
+model would have to. So our MedSAM score is the best case. The **jitter experiment** moves each box edge
+randomly by up to 5, 10 and 20 pixels to see how fast the score drops when the boxes are less
+precise, as a hurried human's would be.
+
+**Where it lives in our code.** `src/cardiac/models/medsam.py` (loading, boxes, jitter, merging) and
+`src/cardiac/evaluate_medsam.py` (running it on a split and scoring it).
