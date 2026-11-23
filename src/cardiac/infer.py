@@ -55,8 +55,11 @@ def predict_probabilities(
     return np.concatenate(outputs).astype(np.float32)
 
 
-def keep_largest_component(label: np.ndarray) -> np.ndarray:
-    """Keeps only the largest 3D connected blob of each structure; stray blobs become background."""
+def remove_small_components(label: np.ndarray, min_fraction: float = 0.1) -> np.ndarray:
+    """Per structure, drops 3D blobs smaller than `min_fraction` of that structure's largest blob.
+
+    Keeping only the single largest blob was tried first and deleted real RV: with 10 mm between
+    slices the thin RV crescent can come out as two genuine pieces (docs/decisions.md D15)."""
     out = label.copy()
     full_connectivity = np.ones((3, 3, 3), dtype=bool)
     for value in np.unique(label):
@@ -65,9 +68,10 @@ def keep_largest_component(label: np.ndarray) -> np.ndarray:
         components, n = ndimage.label(label == value, structure=full_connectivity)
         if n <= 1:
             continue
-        sizes = np.bincount(components.ravel())[1:]
-        largest = int(np.argmax(sizes)) + 1
-        out[(components != largest) & (components > 0)] = 0
+        sizes = np.bincount(components.ravel())
+        sizes[0] = 0
+        too_small = np.flatnonzero(sizes < min_fraction * sizes.max())
+        out[np.isin(components, too_small[too_small > 0])] = 0
     return out
 
 
@@ -83,7 +87,7 @@ def fill_cavity_holes(label: np.ndarray) -> np.ndarray:
 
 
 def postprocess(label: np.ndarray) -> np.ndarray:
-    return fill_cavity_holes(keep_largest_component(label))
+    return fill_cavity_holes(remove_small_components(label))
 
 
 def predict_volume(

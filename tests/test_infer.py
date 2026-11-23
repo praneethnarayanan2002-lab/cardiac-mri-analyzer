@@ -2,17 +2,26 @@ import numpy as np
 import torch
 
 from cardiac.data.augment import training_transforms
-from cardiac.infer import fill_cavity_holes, keep_largest_component, predict_volume
+from cardiac.infer import fill_cavity_holes, predict_volume, remove_small_components
 from cardiac.models.unet import build_scratch_unet
 
 
-def test_largest_component_removes_stray_blob() -> None:
+def test_small_stray_blob_is_removed() -> None:
     label = np.zeros((20, 20, 3), dtype=np.uint8)
     label[5:12, 5:12, :] = 3
     label[17:19, 17:19, 1] = 3  # a stray blob far from the heart
-    out = keep_largest_component(label)
+    out = remove_small_components(label)
     assert out[17:19, 17:19, 1].sum() == 0
     assert (out[5:12, 5:12, :] == 3).all()
+
+
+def test_large_second_piece_is_kept() -> None:
+    # The RV can come out as two real pieces (e.g. base and mid slices that don't touch).
+    label = np.zeros((30, 30, 8), dtype=np.uint8)
+    label[2:12, 2:12, 0:5] = 1  # 500 voxels
+    label[18:26, 18:26, 6:8] = 1  # 128 voxels, about 26% of the larger piece
+    out = remove_small_components(label)
+    assert (out == label).all()
 
 
 def test_fill_holes_fills_cavity_but_keeps_myocardium_ring() -> None:
