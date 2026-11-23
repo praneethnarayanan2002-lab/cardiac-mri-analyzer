@@ -78,3 +78,8 @@ python_version = "3.11"
 files = ["src"]
 strict = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# nibabel ships partial type hints; its untyped header methods would otherwise fail strict mode.
+module = ["cardiac.data.io"]
+disallow_untyped_calls = false
