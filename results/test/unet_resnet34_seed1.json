@@ -1,7 +1,7 @@
 {
   "run": "runs/unet_resnet34/20261122-214359-seed1",
   "train_git_commit": "a4922fbc8af67ff577cf1da2f1852534c06232d8",
-  "eval_git_commit": "a4922fbc8af67ff577cf1da2f1852534c06232d8 (uncommitted changes)",
+  "eval_git_commit": "3bb8cd8c4d5afcce6af78cbb0c49fee1b4bb3ab8",
   "best_epoch": 68,
   "split": "test",
   "n_patients": 50,
