@@ -38,7 +38,8 @@ def segmentation(results: Path) -> dict[str, Any]:
         }
         for j in jitters
     ]
-    return {"dice": dice, "hd95": hd95, "jitter": jitter, "n_patients": 50}
+    n_patients = _load(results / "test" / "unet_resnet34_seed0.json")["n_patients"]
+    return {"dice": dice, "hd95": hd95, "jitter": jitter, "n_patients": n_patients}
 
 
 def clinical(results: Path) -> dict[str, Any]:
@@ -64,16 +65,18 @@ def clinical(results: Path) -> dict[str, Any]:
             ]
             for key in MEASUREMENTS
         }
-    summary = {
-        model: {
-            key: {
-                k: stats[model][key][k] for k in ("bias", "loa_low", "loa_high", "mae", "pearson_r")
-            }
-            for key in MEASUREMENTS
-        }
-        for model in MODELS
-        if model in stats
-    }
+    summary: dict[str, dict[str, Any]] = {}
+    for model in MODELS:
+        if model not in stats:
+            continue
+        summary[model] = {}
+        for key in MEASUREMENTS:
+            block = stats[model][key]
+            entry = {k: block[k] for k in ("bias", "loa_low", "loa_high", "mae", "pearson_r")}
+            # The plotted dots are seed 0, so the plotted lines are seed 0's statistics.
+            seed0 = block["per_seed"]["0"]
+            entry["seed0"] = {k: seed0[k] for k in ("bias", "loa_low", "loa_high")}
+            summary[model][key] = entry
     units = dict(MEASUREMENTS)
     return {"stats": summary, "points": points, "units": units, "points_seed": 0}
 
