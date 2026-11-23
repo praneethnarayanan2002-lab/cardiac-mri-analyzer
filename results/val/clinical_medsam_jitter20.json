@@ -1,0 +1,13 @@
+{
+  "source": "medsam_jitter20",
+  "jitters_px": [
+    0,
+    5,
+    10,
+    20
+  ],
+  "split": "val",
+  "eval_git_commit": "b5d707a57077bd6a315fbbe3ee646c1f2cda0b94",
+  "n_patients": 20,
+  "max_dice_difference_vs_evaluation": 4.885378310959254e-05
+}

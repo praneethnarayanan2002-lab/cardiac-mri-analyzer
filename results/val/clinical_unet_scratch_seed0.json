@@ -1,0 +1,9 @@
+{
+  "source": "unet_scratch_seed0",
+  "run": "runs/unet_scratch/20261122-185431-seed0",
+  "train_git_commit": "db770e16a45412ec6c7f551b101f2979c32d0b6b",
+  "split": "val",
+  "eval_git_commit": "b5d707a57077bd6a315fbbe3ee646c1f2cda0b94",
+  "n_patients": 20,
+  "max_dice_difference_vs_evaluation": 4.982556295585194e-05
+}
