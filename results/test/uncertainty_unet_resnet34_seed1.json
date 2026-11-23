@@ -1,0 +1,7 @@
+{
+  "run": "runs/unet_resnet34/20261122-214359-seed1",
+  "train_git_commit": "a4922fbc8af67ff577cf1da2f1852534c06232d8",
+  "eval_git_commit": "56ed735c504b745fd610ee9e75192579b49748e3",
+  "split": "test",
+  "tta": "8 views: rotations by 0/90/180/270 degrees, each with and without a flip"
+}
