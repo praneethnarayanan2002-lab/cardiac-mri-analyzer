@@ -1,7 +1,7 @@
 # Every Python command goes through `uv run`, which uses the project's .venv/ and never a global Python.
-# Targets for later phases (eval, api, ui) are added in the phase that builds them.
+# Targets for later phases (api, ui) are added in the phase that builds them.
 
-.PHONY: setup data data-lite explore train eval-val test lint format typecheck notebook clean
+.PHONY: setup data data-lite explore train eval eval-val test lint format typecheck notebook clean
 
 setup:
 	uv python install 3.11
@@ -28,6 +28,15 @@ train:
 			uv run python -m cardiac.train --config configs/$$cfg.yaml --seed $$seed || exit 1; \
 		done; \
 	done
+
+# Test-set evaluation of every trained run and of MedSAM, then the summary table and figures.
+# Run once, after all training is finished.
+eval:
+	for run in runs/unet_scratch/*/ runs/unet_resnet34/*/; do \
+		uv run python -m cardiac.evaluate --run "$$run" --split test --confirm-test || exit 1; \
+	done
+	uv run python -m cardiac.evaluate_medsam --split test --confirm-test
+	uv run python scripts/summarize_segmentation.py --split test
 
 # Validation-set evaluation of one run, plus its figures: make eval-val RUN=runs/unet_scratch/<folder>
 eval-val:

@@ -67,26 +67,33 @@ def seed_summary(per_seed: dict[int, pd.DataFrame]) -> dict[str, object]:
     return out
 
 
-def per_patient_dice(per_seed: dict[int, pd.DataFrame], structure: str) -> pd.Series:
-    """Dice per patient, averaged over seeds and over ED/ES (one number per patient)."""
+def per_patient(per_seed: dict[int, pd.DataFrame], column: str) -> pd.Series:
+    """One number per patient: the metric averaged over seeds and over ED/ES."""
     stacked = pd.concat(per_seed.values())
-    return stacked.groupby("pid")[f"dice_{structure}"].mean()
+    return stacked.groupby("pid")[column].mean()
 
 
 def compare_unets(runs: dict[str, dict[int, pd.DataFrame]]) -> dict[str, object]:
-    """Paired Wilcoxon signed-rank test, pretrained vs scratch, one pair per patient."""
+    """Paired Wilcoxon signed-rank test, pretrained minus scratch, one pair per patient.
+
+    Dice was the planned comparison. HD95 was added after seeing that Dice showed no difference,
+    so its p-values are reported as exploratory (docs/decisions.md D20)."""
     result: dict[str, object] = {}
-    for structure in STRUCTS:
-        a = per_patient_dice(runs["unet_resnet34"], structure)
-        b = per_patient_dice(runs["unet_scratch"], structure)
-        diff = (a - b.reindex(a.index)).dropna()
-        test = stats.wilcoxon(diff)
-        result[structure] = {
-            "mean_difference": float(diff.mean()),
-            "patients_better_with_pretrained": int((diff > 0).sum()),
-            "n_patients": len(diff),
-            "wilcoxon_p": float(test.pvalue),
-        }
+    for metric, planned in (("dice", True), ("hd95", False)):
+        block: dict[str, object] = {"planned": planned}
+        for structure in STRUCTS:
+            column = f"{metric}_{structure}"
+            a = per_patient(runs["unet_resnet34"], column)
+            b = per_patient(runs["unet_scratch"], column)
+            diff = (a - b.reindex(a.index)).dropna()
+            better = (diff > 0) if metric == "dice" else (diff < 0)
+            block[structure] = {
+                "mean_difference": float(diff.mean()),
+                "patients_better_with_pretrained": int(better.sum()),
+                "n_patients": len(diff),
+                "wilcoxon_p": float(stats.wilcoxon(diff).pvalue),
+            }
+        result[metric] = block
     return result
 
 
@@ -107,7 +114,7 @@ def plot_bars(summary: dict[str, dict[str, object]], out: Path) -> None:
             ax.text(xi, m + 0.01, f"{m:.3f}", ha="center", fontsize=7)
     ax.set_xticks(range(len(STRUCTS)), STRUCTS)
     ax.set(ylabel="Dice (3D, per patient)", ylim=(0, 1.08))
-    ax.legend(fontsize=8, loc="lower right")
+    ax.legend(fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=3, frameon=False)
     ax.set_title(
         "Test set (50 patients, ED + ES). Error bars: std over 3 training seeds", fontsize=9
     )
