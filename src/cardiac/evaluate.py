@@ -94,6 +94,8 @@ def main() -> None:
     if args.split == "test" and not args.confirm_test:
         parser.error("the test set is used once per model, at the end; add --confirm-test")
 
+    # Read the code version before writing any output, or our own files would count as changes.
+    eval_commit = git_commit()
     device = pick_device()
     table = evaluate_run(args.run / "best.pt", args.split, device)
     _, config = load_checkpoint(args.run / "best.pt", device)
@@ -105,7 +107,7 @@ def main() -> None:
     payload = {
         "run": str(args.run),
         "train_git_commit": (args.run / "git_commit.txt").read_text().strip(),
-        "eval_git_commit": git_commit(),
+        "eval_git_commit": eval_commit,
         "split": args.split,
         "n_patients": int(table.pid.nunique()),
         "best_epoch": int(checkpoint["epoch"]),
