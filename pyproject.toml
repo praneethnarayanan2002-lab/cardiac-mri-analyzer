@@ -1,0 +1,80 @@
+[project]
+name = "cardiac-mri-analyzer"
+version = "0.1.0"
+description = "Cardiac cine-MRI segmentation, clinical measurements and explainable diagnosis on ACDC. Research demo, not for clinical use."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "huggingface-hub==2.4.0",
+    "matplotlib==3.11.2",
+    "monai==1.6.2",
+    "nibabel==5.5.0",
+    "numpy==2.4.6",
+    "pandas==3.1.1",
+    "pillow==13.0.0",
+    "pyyaml==6.0.4",
+    "scikit-image==0.26.0",
+    "scikit-learn==1.9.1",
+    "scipy==1.17.1",
+    "segmentation-models-pytorch==0.6.0",
+    "shap==0.51.0",
+    "torch==2.15.0",
+    "torchvision==0.29.2",
+    "tqdm==4.70.1",
+    "transformers==5.24.0",
+    "xgboost==3.2.0",
+]
+
+[dependency-groups]
+app = [
+    "fastapi==0.165.0",
+    "pydantic==2.14.4",
+    "python-multipart==0.0.34",
+    "reportlab==5.1.0",
+    "uvicorn[standard]==0.54.0",
+]
+dev = [
+    "httpx==0.28.1",
+    "ipykernel==7.4.0",
+    "jupyterlab==4.6.6",
+    "mypy==2.4.1",
+    "pytest==9.2.0",
+    "ruff==0.17.6",
+    "types-pyyaml==6.0.12.20261122",
+]
+
+[tool.uv]
+# `uv sync` installs everything into .venv/: the research package, the web backend and the dev tools.
+default-groups = ["dev", "app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cardiac"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts", "backend"]
+
+[tool.ruff.lint]
+# E/W/F: pycodestyle + pyflakes basics. I: sorted imports. B: common bugs.
+# UP: modern syntax. N: naming. SIM: simpler code. RUF: ruff's own checks.
+select = ["E", "W", "F", "I", "B", "UP", "N", "SIM", "RUF"]
+
+[tool.ruff.lint.pep8-naming]
+# Medical-imaging code reads better with the usual capitalised shapes (H, W, S).
+ignore-names = ["H", "W", "S", "D", "X", "X_*", "N"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+strict = true
+ignore_missing_imports = true

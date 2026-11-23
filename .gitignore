@@ -1,0 +1,32 @@
+# Python and the project virtual environment
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Patient data and model weights never go into git (see docs/decisions.md)
+data/
+runs/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.nii
+*.nii.gz
+
+# Secrets
+.env
+.env.*
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
