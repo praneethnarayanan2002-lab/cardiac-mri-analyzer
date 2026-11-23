@@ -16,10 +16,13 @@ def set_seed(seed: int) -> None:
 
 
 def git_commit() -> str:
-    """Current commit hash, flagged if the working tree has uncommitted changes."""
+    """Current commit hash, flagged if code or config has uncommitted changes.
+
+    results/ and figures/ are outputs, not code, so new or rewritten files there don't count."""
 
     def run(*args: str) -> str:
         return subprocess.run(["git", *args], capture_output=True, text=True).stdout.strip()
 
     commit = run("rev-parse", "HEAD") or "unknown"
-    return commit + (" (uncommitted changes)" if run("status", "--porcelain") else "")
+    changes = run("status", "--porcelain", "--", ".", ":(exclude)results", ":(exclude)figures")
+    return commit + (" (uncommitted changes)" if changes else "")
