@@ -1,0 +1,9 @@
+{
+  "source": "unet_resnet34_seed0",
+  "run": "runs/unet_resnet34/20261122-194712-seed0",
+  "train_git_commit": "3bdb375dff78be284fae1bc2c8ddf125aabd8af6",
+  "split": "test",
+  "eval_git_commit": "b5d707a57077bd6a315fbbe3ee646c1f2cda0b94",
+  "n_patients": 50,
+  "max_dice_difference_vs_evaluation": 4.978478031347766e-05
+}
